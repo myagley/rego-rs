@@ -1,0 +1,11 @@
+[package]
+name = "rego"
+version = "0.1.0"
+authors = ["Mike Yagley <myagley@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+lalrpop-util = "0.18"
+
+[build-dependencies]
+lalrpop = "0.18"

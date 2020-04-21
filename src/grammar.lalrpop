@@ -1,0 +1,16 @@
+use crate::token::Token;
+
+grammar<'input>(input: &'input str);
+
+pub Expr: () = {
+    "null"
+};
+
+extern {
+    type Location = usize;
+    type Error = ();
+
+    enum Token<'input> {
+        "null" => Token::Null,
+    }
+}
