@@ -1,114 +1,231 @@
+use std::fmt;
 use std::iter::Peekable;
-use std::str::CharIndices;
+use std::str::Chars;
 
 use crate::token::{StringLiteral, Token};
+use crate::{Location, Span, Spanned};
 
-pub enum Error {
+pub type SpannedToken<'i> = Spanned<Token<'i>>;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ErrorKind {
+    UnexpectedEof,
     UnterminatedStringLiteral,
 }
 
-pub type Spanned<Tok, Loc, Error> = Result<(Loc, Tok, Loc), Error>;
+impl fmt::Display for ErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use ErrorKind::*;
+        match self {
+            UnexpectedEof => write!(f, "unexpected end of file"),
+            UnterminatedStringLiteral => write!(f, "unterminated string literal"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Error {
+    span: Span,
+    kind: ErrorKind,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "error {}: {}", self.span, self.kind)
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
+}
+
+struct CharLocations<'input> {
+    location: Location,
+    chars: Chars<'input>,
+}
+
+impl<'input> CharLocations<'input> {
+    pub fn new(input: &'input str) -> Self {
+        Self {
+            location: Location::default(),
+            chars: input.chars(),
+        }
+    }
+}
+
+impl<'input> Iterator for CharLocations<'input> {
+    type Item = (Location, char);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.chars.next().map(|ch| {
+            let location = self.location;
+            self.location.shift(ch);
+            (location, ch)
+        })
+    }
+}
 
 pub struct Lexer<'input> {
-    chars: Peekable<CharIndices<'input>>,
+    chars: Peekable<CharLocations<'input>>,
+    loc: Location,
     input: &'input str,
 }
 
 impl<'input> Lexer<'input> {
     pub fn new(input: &'input str) -> Self {
+        let chars = CharLocations::new(input);
         Self {
-            chars: input.char_indices().peekable(),
+            chars: chars.peekable(),
+            loc: Location::default(),
             input,
         }
     }
 
-    fn test_lookahead<F>(&mut self, mut test: F) -> bool
+    fn skip_to_end(&mut self) {
+        while let Some(_) = self.next() {}
+    }
+
+    fn bump(&mut self) -> Option<(Location, char)> {
+        self.chars.next().map(|(loc, ch)| {
+            self.loc = loc;
+            (loc, ch)
+        })
+    }
+
+    fn peek(&mut self) -> Option<&(Location, char)> {
+        self.chars.peek()
+    }
+
+    fn test_peek<F>(&mut self, mut test: F) -> bool
     where
         F: FnMut(char) -> bool,
     {
         self.chars.peek().map_or(false, |(_, ch)| test(*ch))
     }
 
-    fn escape_code(&mut self) -> Result<(), ()> {
-        self.chars.next();
-        Ok(())
+    fn error<T>(&mut self, kind: ErrorKind, location: Location) -> Result<T, Error> {
+        self.skip_to_end();
+        error(kind, location)
     }
 
-    fn string_literal(&mut self, start: usize) -> Spanned<Token<'input>, usize, ()> {
-        let content_start = start + 1;
+    fn eof_error<T>(&mut self) -> Result<T, Error> {
+        let location = self.next_loc();
+        self.error(ErrorKind::UnexpectedEof, location)
+    }
+
+    fn next_loc(&mut self) -> Location {
+        let loc = self.loc;
+        self.peek().map_or(loc, |l| l.0)
+    }
+
+    fn slice(&self, start: Location, end: Location) -> &'input str {
+        &self.input[start.absolute.into()..end.absolute.into()]
+    }
+
+    fn escape_code(&mut self) -> Result<Location, Error> {
+        match self.bump() {
+            Some((loc, _ch)) => Ok(loc),
+            None => self.eof_error(),
+        }
+    }
+
+    fn string_literal(&mut self, start: Location) -> Result<SpannedToken<'input>, Error> {
+        let content_start = self.next_loc();
         loop {
-            match self.chars.next() {
+            match self.bump() {
                 Some((_, '\\')) => {
                     self.escape_code()?;
                 }
-                Some((i, '"')) => {
-                    let s = StringLiteral::Escaped(&self.input[content_start..i]);
-                    return Ok((start, Token::StringLiteral(s), i + 1));
+                Some((content_end, '"')) => {
+                    let end = self.next_loc();
+                    let s = StringLiteral::Escaped(self.slice(content_start, content_end));
+                    return spanned(start, end, Token::StringLiteral(s));
                 }
-                Some((_i, _)) => continue,
+                Some((_loc, _ch)) => continue,
                 None => break,
             }
         }
-        panic!("afadf");
+        self.error(ErrorKind::UnterminatedStringLiteral, start)
     }
 }
 
 impl<'input> Iterator for Lexer<'input> {
-    type Item = Spanned<Token<'input>, usize, ()>;
+    type Item = Result<SpannedToken<'input>, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            match self.chars.next() {
-                Some((i, '\n')) => return Some(Ok((i, Token::Newline, i + 1))),
-                Some((i, '\r')) => return Some(Ok((i, Token::CarriageReturn, i + 1))),
+            match self.bump() {
+                Some((loc, '\n')) => return Some(spanned(loc, self.next_loc(), Token::Newline)),
+                Some((loc, '\r')) => {
+                    return Some(spanned(loc, self.next_loc(), Token::CarriageReturn))
+                }
                 Some((_, ch)) if ch.is_whitespace() => continue,
-                Some((i, '{')) => return Some(Ok((i, Token::BraceOpen, i + 1))),
-                Some((i, '}')) => return Some(Ok((i, Token::BraceClose, i + 1))),
-                Some((i, '[')) => return Some(Ok((i, Token::BracketOpen, i + 1))),
-                Some((i, ']')) => return Some(Ok((i, Token::BracketClose, i + 1))),
-                Some((i, '(')) => return Some(Ok((i, Token::ParenOpen, i + 1))),
-                Some((i, ')')) => return Some(Ok((i, Token::ParenClose, i + 1))),
-                Some((i, '+')) => return Some(Ok((i, Token::Plus, i + 1))),
-                Some((i, '-')) => return Some(Ok((i, Token::Minus, i + 1))),
-                Some((i, '*')) => return Some(Ok((i, Token::Star, i + 1))),
-                Some((i, '/')) => return Some(Ok((i, Token::Slash, i + 1))),
-                Some((i, '.')) => return Some(Ok((i, Token::Dot, i + 1))),
-                Some((i, '>')) if self.test_lookahead(|ch| ch == '=') => {
-                    self.chars.next();
-                    return Some(Ok((i, Token::GreaterEqual, i + 2)));
+                Some((loc, '{')) => return Some(spanned(loc, self.next_loc(), Token::BraceOpen)),
+                Some((loc, '}')) => return Some(spanned(loc, self.next_loc(), Token::BraceClose)),
+                Some((loc, '[')) => return Some(spanned(loc, self.next_loc(), Token::BracketOpen)),
+                Some((loc, ']')) => {
+                    return Some(spanned(loc, self.next_loc(), Token::BracketClose))
                 }
-                Some((i, '>')) => return Some(Ok((i, Token::Greater, i + 1))),
-                Some((i, '<')) if self.test_lookahead(|ch| ch == '=') => {
-                    self.chars.next();
-                    return Some(Ok((i, Token::LessEqual, i + 2)));
+                Some((loc, '(')) => return Some(spanned(loc, self.next_loc(), Token::ParenOpen)),
+                Some((loc, ')')) => return Some(spanned(loc, self.next_loc(), Token::ParenClose)),
+                Some((loc, '+')) => return Some(spanned(loc, self.next_loc(), Token::Plus)),
+                Some((loc, '-')) => return Some(spanned(loc, self.next_loc(), Token::Minus)),
+                Some((loc, '*')) => return Some(spanned(loc, self.next_loc(), Token::Star)),
+                Some((loc, '/')) => return Some(spanned(loc, self.next_loc(), Token::Slash)),
+                Some((loc, '.')) => return Some(spanned(loc, self.next_loc(), Token::Dot)),
+                Some((_, '>')) if self.test_peek(|ch| ch == '=') => {
+                    let (loc, _) = self.bump().unwrap();
+                    return Some(spanned(loc, self.next_loc(), Token::GreaterEqual));
                 }
-                Some((i, '<')) => return Some(Ok((i, Token::Less, i + 1))),
-                Some((i, '=')) if self.test_lookahead(|ch| ch == '=') => {
-                    self.chars.next();
-                    return Some(Ok((i, Token::EqualEqual, i + 2)));
+                Some((loc, '>')) => return Some(spanned(loc, self.next_loc(), Token::Greater)),
+                Some((_, '<')) if self.test_peek(|ch| ch == '=') => {
+                    let (loc, _) = self.bump().unwrap();
+                    return Some(spanned(loc, self.next_loc(), Token::LessEqual));
                 }
-                Some((i, '=')) => return Some(Ok((i, Token::Equal, i + 1))),
-                Some((i, '!')) if self.test_lookahead(|ch| ch == '=') => {
-                    self.chars.next();
-                    return Some(Ok((i, Token::NotEqual, i + 2)));
+                Some((loc, '<')) => return Some(spanned(loc, self.next_loc(), Token::Less)),
+                Some((_, '=')) if self.test_peek(|ch| ch == '=') => {
+                    let (loc, _) = self.bump().unwrap();
+                    return Some(spanned(loc, self.next_loc(), Token::EqualEqual));
                 }
-                Some((i, '!')) => return Some(Ok((i, Token::Bang, i + 1))),
-                Some((i, '`')) => return Some(Ok((i, Token::BackTick, i + 1))),
-                Some((i, ':')) if self.test_lookahead(|ch| ch == '=') => {
-                    self.chars.next();
-                    return Some(Ok((i, Token::Assign, i + 2)));
+                Some((loc, '=')) => return Some(spanned(loc, self.next_loc(), Token::Equal)),
+                Some((_, '!')) if self.test_peek(|ch| ch == '=') => {
+                    let (loc, _) = self.bump().unwrap();
+                    return Some(spanned(loc, self.next_loc(), Token::NotEqual));
                 }
-                Some((i, ':')) => return Some(Ok((i, Token::Colon, i + 1))),
-                Some((i, ';')) => return Some(Ok((i, Token::SemiColon, i + 1))),
-                Some((i, ',')) => return Some(Ok((i, Token::Comma, i + 1))),
-                Some((i, '&')) => return Some(Ok((i, Token::Amper, i + 1))),
-                Some((i, '|')) => return Some(Ok((i, Token::Vbar, i + 1))),
-                Some((i, '"')) => return Some(self.string_literal(i)),
+                Some((loc, '!')) => return Some(spanned(loc, self.next_loc(), Token::Bang)),
+                Some((loc, '`')) => return Some(spanned(loc, self.next_loc(), Token::BackTick)),
+                Some((_, ':')) if self.test_peek(|ch| ch == '=') => {
+                    let (loc, _) = self.bump().unwrap();
+                    return Some(spanned(loc, self.next_loc(), Token::Assign));
+                }
+                Some((loc, ':')) => return Some(spanned(loc, self.next_loc(), Token::Colon)),
+                Some((loc, ';')) => return Some(spanned(loc, self.next_loc(), Token::SemiColon)),
+                Some((loc, ',')) => return Some(spanned(loc, self.next_loc(), Token::Comma)),
+                Some((loc, '&')) => return Some(spanned(loc, self.next_loc(), Token::Amper)),
+                Some((loc, '|')) => return Some(spanned(loc, self.next_loc(), Token::Vbar)),
+                Some((start, '"')) => return Some(self.string_literal(start)),
                 None => return None,
                 _ => return None,
             }
         }
     }
+}
+
+fn error<T>(kind: ErrorKind, location: Location) -> Result<T, Error> {
+    let span = Span::new(location, location);
+    let e = Error { span, kind };
+    Err(e)
+}
+
+fn spanned<'input>(
+    start: Location,
+    end: Location,
+    token: Token<'input>,
+) -> Result<SpannedToken, Error> {
+    let span = Span::new(start, end);
+    Ok(Spanned::new(token, span))
 }
 
 #[cfg(test)]
@@ -117,14 +234,27 @@ mod tests {
 
     #[test]
     fn test_lex_string() {
-        let mut lexer = Lexer::new("  \"hello, there\" ");
+        let mut lexer = Lexer::new("  \"hello, there\"");
+        let start = Location::new(0, 2, 2);
+        let end = Location::new(0, 15, 15);
+        let expected = Token::StringLiteral(StringLiteral::Escaped("hello, there"));
+        assert_eq!(Some(spanned(start, end, expected)), lexer.next());
+    }
+
+    #[test]
+    fn test_lex_unterminated_string() {
+        let mut lexer = Lexer::new("  \"hello, there");
+        let start = Location::new(0, 2, 2);
         assert_eq!(
-            Some(Ok((
-                2,
-                Token::StringLiteral(StringLiteral::Escaped("hello, there")),
-                16
-            ))),
+            Some(error(ErrorKind::UnterminatedStringLiteral, start)),
             lexer.next()
         );
+    }
+
+    #[test]
+    fn test_lex_unterminated_escapecode() {
+        let mut lexer = Lexer::new("  \"hello, th\\");
+        let start = Location::new(0, 12, 12);
+        assert_eq!(Some(error(ErrorKind::UnexpectedEof, start)), lexer.next());
     }
 }
