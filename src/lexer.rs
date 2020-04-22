@@ -105,14 +105,14 @@ impl<'input> Lexer<'input> {
         self.chars.peek().map_or(false, |(_, ch)| test(*ch))
     }
 
-    fn error<T>(&mut self, kind: ErrorKind, location: Location) -> Result<T, Error> {
+    fn error<T>(&mut self, location: Location, kind: ErrorKind) -> Result<T, Error> {
         self.skip_to_end();
-        error(kind, location)
+        error(location, kind)
     }
 
     fn eof_error<T>(&mut self) -> Result<T, Error> {
         let location = self.next_loc();
-        self.error(ErrorKind::UnexpectedEof, location)
+        self.error(location, ErrorKind::UnexpectedEof)
     }
 
     fn next_loc(&mut self) -> Location {
@@ -147,7 +147,23 @@ impl<'input> Lexer<'input> {
                 None => break,
             }
         }
-        self.error(ErrorKind::UnterminatedStringLiteral, start)
+        self.error(start, ErrorKind::UnterminatedStringLiteral)
+    }
+
+    fn raw_string_literal(&mut self, start: Location) -> Result<SpannedToken<'input>, Error> {
+        let content_start = self.next_loc();
+        loop {
+            match self.bump() {
+                Some((content_end, '`')) => {
+                    let end = self.next_loc();
+                    let s = StringLiteral::Raw(self.slice(content_start, content_end));
+                    return spanned(start, end, Token::StringLiteral(s));
+                }
+                Some((_loc, _ch)) => continue,
+                None => break,
+            }
+        }
+        self.error(start, ErrorKind::UnterminatedStringLiteral)
     }
 }
 
@@ -195,7 +211,6 @@ impl<'input> Iterator for Lexer<'input> {
                     return Some(spanned(loc, self.next_loc(), Token::NotEqual));
                 }
                 Some((loc, '!')) => return Some(spanned(loc, self.next_loc(), Token::Bang)),
-                Some((loc, '`')) => return Some(spanned(loc, self.next_loc(), Token::BackTick)),
                 Some((_, ':')) if self.test_peek(|ch| ch == '=') => {
                     let (loc, _) = self.bump().unwrap();
                     return Some(spanned(loc, self.next_loc(), Token::Assign));
@@ -206,6 +221,7 @@ impl<'input> Iterator for Lexer<'input> {
                 Some((loc, '&')) => return Some(spanned(loc, self.next_loc(), Token::Amper)),
                 Some((loc, '|')) => return Some(spanned(loc, self.next_loc(), Token::Vbar)),
                 Some((start, '"')) => return Some(self.string_literal(start)),
+                Some((start, '`')) => return Some(self.raw_string_literal(start)),
                 None => return None,
                 _ => return None,
             }
@@ -213,7 +229,7 @@ impl<'input> Iterator for Lexer<'input> {
     }
 }
 
-fn error<T>(kind: ErrorKind, location: Location) -> Result<T, Error> {
+fn error<T>(location: Location, kind: ErrorKind) -> Result<T, Error> {
     let span = Span::new(location, location);
     let e = Error { span, kind };
     Err(e)
@@ -246,7 +262,7 @@ mod tests {
         let mut lexer = Lexer::new("  \"hello, there");
         let start = Location::new(0, 2, 2);
         assert_eq!(
-            Some(error(ErrorKind::UnterminatedStringLiteral, start)),
+            Some(error(start, ErrorKind::UnterminatedStringLiteral)),
             lexer.next()
         );
     }
@@ -255,6 +271,25 @@ mod tests {
     fn test_lex_unterminated_escapecode() {
         let mut lexer = Lexer::new("  \"hello, th\\");
         let start = Location::new(0, 12, 12);
-        assert_eq!(Some(error(ErrorKind::UnexpectedEof, start)), lexer.next());
+        assert_eq!(Some(error(start, ErrorKind::UnexpectedEof)), lexer.next());
+    }
+
+    #[test]
+    fn test_lex_raw_string() {
+        let mut lexer = Lexer::new("  `hello, there`");
+        let start = Location::new(0, 2, 2);
+        let end = Location::new(0, 15, 15);
+        let expected = Token::StringLiteral(StringLiteral::Raw("hello, there"));
+        assert_eq!(Some(spanned(start, end, expected)), lexer.next());
+    }
+
+    #[test]
+    fn test_lex_unterminated_raw_string() {
+        let mut lexer = Lexer::new("  `hello, there");
+        let start = Location::new(0, 2, 2);
+        assert_eq!(
+            Some(error(start, ErrorKind::UnterminatedStringLiteral)),
+            lexer.next()
+        );
     }
 }

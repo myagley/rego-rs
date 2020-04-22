@@ -21,8 +21,6 @@ pub enum Token<'input> {
     Bang,
     NotEqual,
     EqualEqual,
-    BackTick,
-    DoubleQuote,
     Colon,
     SemiColon,
     Comma,
