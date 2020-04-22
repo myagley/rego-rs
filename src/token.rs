@@ -1,6 +1,12 @@
+use ordered_float::NotNan;
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Token<'input> {
-    Null,
+    StringLiteral(StringLiteral<'input>),
+    IntLiteral(i64),
+    FloatLiteral(NotNan<f64>),
+    Identifier(&'input str),
+
     BraceClose,
     BraceOpen,
     BracketClose,
@@ -28,7 +34,18 @@ pub enum Token<'input> {
     Vbar,
     Newline,
     CarriageReturn,
-    StringLiteral(StringLiteral<'input>),
+
+    As,
+    Default,
+    Else,
+    False,
+    Import,
+    Not,
+    Null,
+    Package,
+    Some,
+    True,
+    With,
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
