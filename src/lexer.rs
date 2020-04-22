@@ -15,6 +15,7 @@ pub enum ErrorKind {
     NonParseableFloat,
     UnexpectedChar(char),
     UnexpectedEof,
+    UnknownOperator,
     UnterminatedStringLiteral,
 }
 
@@ -26,6 +27,7 @@ impl fmt::Display for ErrorKind {
             NonParseableFloat => write!(f, "cannot parse float. most likely is NaN"),
             UnexpectedChar(c) => write!(f, "unexpected character: {}", c),
             UnexpectedEof => write!(f, "unexpected end of file"),
+            UnknownOperator => write!(f, "unknown operator"),
             UnterminatedStringLiteral => write!(f, "unterminated string literal"),
         }
     }
@@ -285,6 +287,35 @@ impl<'input> Lexer<'input> {
         spanned(start, end, token)
     }
 
+    fn operator(&mut self, start: Location) -> Result<SpannedToken<'input>, Error> {
+        let (end, op) = self.take_while(start, |ch| ch == '=');
+        let token = match op {
+            "+" => Token::Plus,
+            "-" => Token::Minus,
+            "*" => Token::Star,
+            "/" => Token::Slash,
+            "." => Token::Dot,
+            ">" => Token::Greater,
+            ">=" => Token::GreaterEqual,
+            "<" => Token::Less,
+            "<=" => Token::LessEqual,
+            "=" => Token::Equal,
+            "==" => Token::EqualEqual,
+            "!=" => Token::NotEqual,
+            ":" => Token::Colon,
+            ":=" => Token::Assign,
+            ";" => Token::SemiColon,
+            "," => Token::Comma,
+            "&" => Token::Amper,
+            "|" => Token::Vbar,
+            _ => {
+                let span = Span::new(start, end);
+                return Err(Error::new(span, ErrorKind::UnknownOperator));
+            }
+        };
+        spanned(start, end, token)
+    }
+
     fn error_if_next<F>(&mut self, mut test: F) -> Result<(), Error>
     where
         F: FnMut(char) -> bool,
@@ -322,40 +353,7 @@ impl<'input> Iterator for Lexer<'input> {
                 Some((start, ch)) if is_digit(ch) || (ch == '-' && self.test_peek(is_digit)) => {
                     Some(self.numeric_literal(start))
                 }
-                Some((loc, '+')) => Some(spanned(loc, self.next_loc(), Token::Plus)),
-                Some((loc, '-')) => Some(spanned(loc, self.next_loc(), Token::Minus)),
-                Some((loc, '*')) => Some(spanned(loc, self.next_loc(), Token::Star)),
-                Some((loc, '/')) => Some(spanned(loc, self.next_loc(), Token::Slash)),
-                Some((loc, '.')) => Some(spanned(loc, self.next_loc(), Token::Dot)),
-                Some((_, '>')) if self.test_peek(|ch| ch == '=') => {
-                    let (loc, _) = self.bump().unwrap();
-                    Some(spanned(loc, self.next_loc(), Token::GreaterEqual))
-                }
-                Some((loc, '>')) => Some(spanned(loc, self.next_loc(), Token::Greater)),
-                Some((_, '<')) if self.test_peek(|ch| ch == '=') => {
-                    let (loc, _) = self.bump().unwrap();
-                    Some(spanned(loc, self.next_loc(), Token::LessEqual))
-                }
-                Some((loc, '<')) => Some(spanned(loc, self.next_loc(), Token::Less)),
-                Some((_, '=')) if self.test_peek(|ch| ch == '=') => {
-                    let (loc, _) = self.bump().unwrap();
-                    Some(spanned(loc, self.next_loc(), Token::EqualEqual))
-                }
-                Some((loc, '=')) => Some(spanned(loc, self.next_loc(), Token::Equal)),
-                Some((_, '!')) if self.test_peek(|ch| ch == '=') => {
-                    let (loc, _) = self.bump().unwrap();
-                    Some(spanned(loc, self.next_loc(), Token::NotEqual))
-                }
-                Some((loc, '!')) => Some(spanned(loc, self.next_loc(), Token::Bang)),
-                Some((_, ':')) if self.test_peek(|ch| ch == '=') => {
-                    let (loc, _) = self.bump().unwrap();
-                    Some(spanned(loc, self.next_loc(), Token::Assign))
-                }
-                Some((loc, ':')) => Some(spanned(loc, self.next_loc(), Token::Colon)),
-                Some((loc, ';')) => Some(spanned(loc, self.next_loc(), Token::SemiColon)),
-                Some((loc, ',')) => Some(spanned(loc, self.next_loc(), Token::Comma)),
-                Some((loc, '&')) => Some(spanned(loc, self.next_loc(), Token::Amper)),
-                Some((loc, '|')) => Some(spanned(loc, self.next_loc(), Token::Vbar)),
+                Some((start, ch)) if is_operator(ch) => Some(self.operator(start)),
                 Some((_, ch)) if ch.is_whitespace() => continue,
                 _ => None,
             };
@@ -388,6 +386,13 @@ fn is_ident_start(ch: char) -> bool {
 
 fn is_ident_continue(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_'
+}
+
+pub fn is_operator(c: char) -> bool {
+    match c {
+        '+' | '-' | '*' | '/' | '.' | '>' | '<' | '=' | '!' | ':' | ';' | ',' | '&' | '|' => true,
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -450,10 +455,10 @@ mod tests {
 
     #[test]
     fn test_lex_float() {
-        let mut lexer = Lexer::new("  123.4 ");
+        let mut lexer = Lexer::new("  -123.4 ");
         let start = Location::new(0, 2, 2);
-        let end = Location::new(0, 7, 7);
-        let expected = Token::FloatLiteral(NotNan::new(123.4).unwrap());
+        let end = Location::new(0, 8, 8);
+        let expected = Token::FloatLiteral(NotNan::new(-123.4).unwrap());
         assert_eq!(Some(spanned(start, end, expected)), lexer.next());
     }
 
@@ -557,6 +562,36 @@ mod tests {
         for (input, expected) in &cases {
             let mut lexer = Lexer::new(input);
             assert_eq!(*expected, lexer.next());
+        }
+    }
+
+    #[test]
+    fn test_lex_operators() {
+        let cases = [
+            ("  + ", Token::Plus, Location::new(0, 3, 3)),
+            ("  - ", Token::Minus, Location::new(0, 3, 3)),
+            ("  * ", Token::Star, Location::new(0, 3, 3)),
+            ("  / ", Token::Slash, Location::new(0, 3, 3)),
+            ("  . ", Token::Dot, Location::new(0, 3, 3)),
+            ("  > ", Token::Greater, Location::new(0, 3, 3)),
+            ("  >= ", Token::GreaterEqual, Location::new(0, 4, 4)),
+            ("  < ", Token::Less, Location::new(0, 3, 3)),
+            ("  <= ", Token::LessEqual, Location::new(0, 4, 4)),
+            ("  = ", Token::Equal, Location::new(0, 3, 3)),
+            ("  == ", Token::EqualEqual, Location::new(0, 4, 4)),
+            ("  := ", Token::Assign, Location::new(0, 4, 4)),
+            ("  != ", Token::NotEqual, Location::new(0, 4, 4)),
+            ("  : ", Token::Colon, Location::new(0, 3, 3)),
+            ("  ; ", Token::SemiColon, Location::new(0, 3, 3)),
+            ("  , ", Token::Comma, Location::new(0, 3, 3)),
+            ("  & ", Token::Amper, Location::new(0, 3, 3)),
+            ("  | ", Token::Vbar, Location::new(0, 3, 3)),
+        ];
+
+        let start = Location::new(0, 2, 2);
+        for (input, expected, end) in &cases {
+            let mut lexer = Lexer::new(input);
+            assert_eq!(Some(spanned(start, *end, *expected)), lexer.next())
         }
     }
 }
