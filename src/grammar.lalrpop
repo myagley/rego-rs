@@ -1,3 +1,5 @@
+use crate::Location;
+use crate::lexer::Error;
 use crate::token::Token;
 
 grammar<'input>(input: &'input str);
@@ -7,8 +9,8 @@ pub Expr: () = {
 };
 
 extern {
-    type Location = usize;
-    type Error = ();
+    type Location = Location;
+    type Error = Error;
 
     enum Token<'input> {
         "null" => Token::Null,

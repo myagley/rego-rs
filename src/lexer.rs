@@ -314,6 +314,10 @@ impl<'input> Iterator for Lexer<'input> {
                 Some((loc, ')')) => Some(spanned(loc, self.next_loc(), Token::ParenClose)),
                 Some((start, '"')) => Some(self.string_literal(start)),
                 Some((start, '`')) => Some(self.raw_string_literal(start)),
+                Some((start, '#')) => {
+                    self.take_until(start, |ch| ch == '\n');
+                    continue;
+                }
                 Some((start, ch)) if is_ident_start(ch) => Some(self.identifier(start)),
                 Some((start, ch)) if is_digit(ch) || (ch == '-' && self.test_peek(is_digit)) => {
                     Some(self.numeric_literal(start))
@@ -534,6 +538,25 @@ mod tests {
         for (input, expected, end) in &cases {
             let mut lexer = Lexer::new(input);
             assert_eq!(Some(spanned(start, *end, *expected)), lexer.next())
+        }
+    }
+
+    #[test]
+    fn test_lex_comment() {
+        let cases = [
+            ("  # this is a comment", None),
+            (
+                "  # this is a comment\n",
+                Some(spanned(
+                    Location::new(0, 21, 21),
+                    Location::new(0, 21, 21),
+                    Token::Newline,
+                )),
+            ),
+        ];
+        for (input, expected) in &cases {
+            let mut lexer = Lexer::new(input);
+            assert_eq!(*expected, lexer.next());
         }
     }
 }
