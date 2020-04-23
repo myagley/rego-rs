@@ -250,7 +250,7 @@ impl From<Span> for Range<usize> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Spanned<T> {
     value: T,
     span: Span,
@@ -280,7 +280,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse() {
+    fn test_query_parse() {
         let cases = [
             " 123",
             " 123.4",
@@ -307,8 +307,43 @@ mod tests {
         for input in &cases {
             let lexer = Lexer::new(input);
             if let Err(e) = grammar::QueryParser::new().parse(input, lexer) {
-                panic!("{:?}", e);
+                panic!("input: {} {:?}", input, e);
             }
+        }
+    }
+
+    #[test]
+    fn test_module_parse_smoke() {
+        let input = r####"
+# This policy module belongs the opa.example package.
+package opa.examples
+# Refer to data.servers as servers.
+import data.servers
+# Refer to the data.networks as networks.
+import data.networks
+# Refer to the data.ports as ports.
+import data.ports
+# A server exists in the violations set if...
+violations[server] {
+    # ...the server exists
+    server = servers[i]
+    # ...and any of the server's protocols is HTTP
+    server.protocols[j] = "http"
+    # ...and the server is public.
+    public_servers[server]
+}
+# A server exists in the public_servers set if...
+public_servers[server] {
+	# Semicolons are optional. Can group expressions onto one line.
+    server = servers[i]; server.ports[j] = ports[k].id 	# ...and the server is connected to a port
+    ports[k].networks[l] = networks[m].id 				# ...and the port is connected to a network
+    networks[m].public = true							# ...and the network is public.
+}
+        "####;
+
+        let lexer = Lexer::new(input);
+        if let Err(e) = grammar::ModuleParser::new().parse(input, lexer) {
+            panic!("{:?}", e);
         }
     }
 }

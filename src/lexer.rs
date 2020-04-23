@@ -9,7 +9,7 @@ use crate::{Location, Span, Spanned};
 
 pub type SpannedToken<'i> = Spanned<Token<'i>>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ErrorKind {
     NonParseableInt,
     NonParseableFloat,
@@ -35,7 +35,7 @@ impl fmt::Display for ErrorKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Error {
     span: Span,
     kind: ErrorKind,
@@ -82,11 +82,13 @@ impl<'input> Iterator for CharLocations<'input> {
     type Item = (Location, char);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.chars.next().map(|ch| {
+        if let Some(ch) = self.chars.next() {
             let location = self.location;
             self.location.shift(ch);
-            (location, ch)
-        })
+            Some((location, ch))
+        } else {
+            None
+        }
     }
 }
 
@@ -94,6 +96,7 @@ pub struct Lexer<'input> {
     chars: Peekable<CharLocations<'input>>,
     loc: Location,
     input: &'input str,
+    prev: Option<Token<'input>>,
 }
 
 impl<'input> Lexer<'input> {
@@ -103,6 +106,7 @@ impl<'input> Lexer<'input> {
             chars: chars.peekable(),
             loc: Location::default(),
             input,
+            prev: None,
         }
     }
 
@@ -161,9 +165,13 @@ impl<'input> Lexer<'input> {
     }
 
     fn next_loc(&mut self) -> Location {
-        let mut loc = self.loc;
-        loc.shift('a');
-        self.peek().map_or(loc, |l| l.0)
+        if let Some((loc, _ch)) = self.peek() {
+            loc
+        } else {
+            let mut loc = self.loc;
+            loc.shift('a');
+            loc
+        }
     }
 
     fn slice(&self, start: Location, end: Location) -> &'input str {
@@ -333,11 +341,32 @@ impl<'input> Lexer<'input> {
         Ok(())
     }
 
+    fn should_inject_semicolon(&self) -> bool {
+        match self.prev {
+            Some(Token::Identifier(_)) => true,
+            Some(Token::Null) => true,
+            Some(Token::True) => true,
+            Some(Token::False) => true,
+            Some(Token::IntLiteral(_)) => true,
+            Some(Token::FloatLiteral(_)) => true,
+            Some(Token::StringLiteral(_)) => true,
+            Some(Token::ParenClose) => true,
+            Some(Token::BracketClose) => true,
+            Some(Token::BraceClose) => true,
+            _ => false,
+        }
+    }
+
     fn next_token(&mut self) -> Option<Result<SpannedToken<'input>, Error>> {
         loop {
-            return match self.bump() {
-                Some((loc, '\n')) => Some(spanned(loc, self.next_loc(), Token::Newline)),
-                Some((loc, '\r')) => Some(spanned(loc, self.next_loc(), Token::CarriageReturn)),
+            let next = match self.bump() {
+                Some((loc, '\n')) => {
+                    if self.should_inject_semicolon() {
+                        Some(spanned(loc, self.next_loc(), Token::SemiColon))
+                    } else {
+                        continue;
+                    }
+                }
                 Some((loc, '{')) => Some(spanned(loc, self.next_loc(), Token::BraceOpen)),
                 Some((loc, '}')) => Some(spanned(loc, self.next_loc(), Token::BraceClose)),
                 Some((loc, '[')) => Some(spanned(loc, self.next_loc(), Token::BracketOpen)),
@@ -347,7 +376,7 @@ impl<'input> Lexer<'input> {
                 Some((start, '"')) => Some(self.string_literal(start)),
                 Some((start, '`')) => Some(self.raw_string_literal(start)),
                 Some((start, '#')) => {
-                    self.take_until(start, |ch| ch == '\n');
+                    self.take_while(start, |ch| ch != '\n');
                     continue;
                 }
                 Some((start, ch)) if is_ident_start(ch) => Some(self.identifier(start)),
@@ -357,8 +386,17 @@ impl<'input> Lexer<'input> {
                 Some((start, ch)) if is_operator(ch) => Some(self.operator(start)),
                 Some((_, ch)) if ch.is_whitespace() => continue,
                 Some((loc, _ch)) => Some(self.error(loc, ErrorKind::UnrecognizedToken)),
-                None => None,
+                None => {
+                    if self.should_inject_semicolon() {
+                        Some(spanned(self.next_loc(), self.next_loc(), Token::SemiColon))
+                    } else {
+                        None
+                    }
+                }
             };
+
+            self.prev = next.and_then(|r| r.ok().map(|spanned| *spanned.value()));
+            return next;
         }
     }
 }
@@ -585,17 +623,7 @@ mod tests {
 
     #[test]
     fn test_lex_comment() {
-        let cases = [
-            ("  # this is a comment", None),
-            (
-                "  # this is a comment\n",
-                Some(spanned(
-                    Location::new(0, 21, 21),
-                    Location::new(0, 22, 22),
-                    Token::Newline,
-                )),
-            ),
-        ];
+        let cases = [("  # this is a comment", None)];
         for (input, expected) in &cases {
             let mut lexer = Lexer::new(input);
             assert_eq!(*expected, lexer.next_token());
@@ -644,12 +672,17 @@ mod tests {
             )),
             Ok((
                 Location::new(0, 4, 4),
-                Token::Newline,
+                Token::SemiColon,
                 Location::new(1, 0, 5),
             )),
             Ok((
                 Location::new(1, 2, 7),
                 Token::StringLiteral(StringLiteral::Escaped("hello")),
+                Location::new(1, 9, 14),
+            )),
+            Ok((
+                Location::new(1, 9, 14),
+                Token::SemiColon,
                 Location::new(1, 9, 14),
             )),
         ];

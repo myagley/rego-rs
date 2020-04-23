@@ -12,9 +12,13 @@ extern {
 
     enum Token<'input> {
         "as" => Token::As,
+        "default" => Token::Default,
+        "else" => Token::Else,
         "false" => Token::False,
+        "import" => Token::Import,
         "not" => Token::Not,
         "null" => Token::Null,
+        "package" => Token::Package,
         "set" => Token::Set,
         "some" => Token::Some,
         "true" => Token::True,
@@ -54,6 +58,7 @@ extern {
         "," => Token::Comma,
         "." => Token::Dot,
         "_" => Token::UnderScore,
+        ":=" => Token::Assign,
     }
 }
 
@@ -61,16 +66,41 @@ Comma<T>: () = {
     (T ",")* T?
 };
 
-pub Query: () = {
-    Literal ( QuerySep Literal )*
+pub Module: () = Package Import* Policy;
+
+Import: () = "import" Ref ("as" Var)? ";"+;
+
+Package: () = "package" Ref ";"+;
+
+Policy: () = Rule*;
+
+Rule: () = {
+    "default"? RuleHead RuleBody* ";"+
+};
+
+RuleHead: () = {
+    Var ( "(" Comma<Term> ")" )? ( "[" Term "]" )? ( AssignOrEqual Term )?
 };
 
 #[inline]
-QuerySep: () = {
-    ";",
+AssignOrEqual: () = {
+    ":=",
+    "=",
+};
+
+RuleBody: () = {
+    ( "else" ( "=" Term)?)? "{" Query "}",
+};
+
+pub Query: () = {
+    Literal ( ";"+ Literal )* ";"+
+};
+
+#[inline]
+Newline: () = {
     "\r" "\n",
     "\n",
-};
+}
 
 Literal: () = {
     LiteralTarget WithModifier?
