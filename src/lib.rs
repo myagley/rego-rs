@@ -281,8 +281,22 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        let input = " 123";
-        let tokenizer = Lexer::new(input);
-        grammar::ExprParser::new().parse(input, tokenizer).unwrap();
+        let cases = [
+            " 123",
+            " 123.4",
+            "\"hello\"",
+            "`raw-string`",
+            "(1 + 2) * 3 >= `sfs`",
+            "x = (1 + 2) * 3 >= `sfs`",
+            "x = 3; y=4",
+            "x = 3\ny=4",
+            "x = 3\r\ny=4",
+        ];
+        for input in &cases {
+            let lexer = Lexer::new(input);
+            if let Err(e) = grammar::QueryParser::new().parse(input, lexer) {
+                panic!("{:?}", e);
+            }
+        }
     }
 }

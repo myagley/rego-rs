@@ -2,17 +2,9 @@ use ordered_float::NotNan;
 
 use crate::Location;
 use crate::lexer::Error;
-use crate::token::Token;
+use crate::token::{StringLiteral, Token};
 
 grammar<'input>(input: &'input str);
-
-pub Expr: () = {
-    Number
-};
-
-Number: () = {
-    "integer"
-}
 
 extern {
     type Location = Location;
@@ -20,7 +12,121 @@ extern {
 
     enum Token<'input> {
         "null" => Token::Null,
-        "integer" => Token::IntLiteral(<i64>),
-        "float" => Token::FloatLiteral(<NotNan<f64>>),
+        "true" => Token::True,
+        "false" => Token::False,
+
+        "integer-literal" => Token::IntLiteral(<i64>),
+        "float-literal" => Token::FloatLiteral(<NotNan<f64>>),
+        "string-literal" => Token::StringLiteral(<StringLiteral<'input>>),
+
+        "var" => Token::Identifier(<&'input str>),
+
+        "=" => Token::Equal,
+        "==" => Token::EqualEqual,
+        "!=" => Token::NotEqual,
+        "<" => Token::Less,
+        "<=" => Token::LessEqual,
+        ">" => Token::Greater,
+        ">=" => Token::GreaterEqual,
+        "+" => Token::Plus,
+        "-" => Token::Minus,
+        "*" => Token::Star,
+        "/" => Token::Slash,
+        "&" => Token::Amper,
+        "|" => Token::Vbar,
+
+        "(" => Token::ParenOpen,
+        ")" => Token::ParenClose,
+        "[" => Token::BracketOpen,
+        "]" => Token::BracketClose,
+        "{" => Token::BraceOpen,
+        "}" => Token::BraceClose,
+
+        "\n" => Token::Newline,
+        "\r" => Token::CarriageReturn,
+        ";" => Token::SemiColon,
     }
 }
+
+Tier<Op, NextTier>: () = {
+    Tier<Op, NextTier> Op NextTier,
+    NextTier,
+};
+
+pub Query: () = {
+    Literal ( QuerySep Literal )*
+};
+
+QuerySep: () = {
+    ";",
+    "\r" "\n",
+    "\n",
+};
+
+Literal: () = {
+    Expr,
+};
+
+Expr: () = {
+    ExprInfix,
+};
+
+ExprInfix: () = {
+    (Term "=")? Tier0,
+};
+
+Tier0 = Tier<Tier0Op, Tier1>;
+Tier1 = Tier<Tier1Op, Tier2>;
+Tier2 = Tier<Tier2Op, Tier3>;
+Tier3 = Tier<Tier3Op, Term>;
+
+Tier3Op: () = {
+    "*",
+    "/",
+    "&",
+    "|",
+};
+
+Tier2Op: () = {
+    "+",
+    "-",
+};
+
+Tier1Op: () = {
+    "<",
+    "<=",
+    ">",
+    ">=",
+};
+
+Tier0Op: () = {
+    "==",
+    "!=",
+};
+
+Term: () = {
+    Scalar,
+    "var",
+    "(" <Expr> ")",
+};
+
+Scalar: () = {
+    String,
+    Number,
+    Bool,
+    "null",
+};
+
+Bool: () = {
+    "true",
+    "false",
+};
+
+String: () = {
+    "string-literal"
+};
+
+Number: () = {
+    "integer-literal",
+    "float-literal",
+};
