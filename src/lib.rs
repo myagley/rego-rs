@@ -229,12 +229,12 @@ impl Span {
         Self { start, end }
     }
 
-    pub fn start(&self) -> &Location {
-        &self.start
+    pub fn start(&self) -> Location {
+        self.start
     }
 
-    pub fn end(&self) -> &Location {
-        &self.end
+    pub fn end(&self) -> Location {
+        self.end
     }
 }
 
@@ -272,5 +272,17 @@ impl<T> Spanned<T> {
     pub fn into_parts(self) -> (T, Span) {
         let Self { value, span } = self;
         (value, span)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse() {
+        let input = " 123";
+        let tokenizer = Lexer::new(input);
+        grammar::ExprParser::new().parse(input, tokenizer).unwrap();
     }
 }

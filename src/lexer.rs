@@ -15,7 +15,8 @@ pub enum ErrorKind {
     NonParseableFloat,
     UnexpectedChar(char),
     UnexpectedEof,
-    UnknownOperator,
+    UnrecognizedOperator,
+    UnrecognizedToken,
     UnterminatedStringLiteral,
 }
 
@@ -27,7 +28,8 @@ impl fmt::Display for ErrorKind {
             NonParseableFloat => write!(f, "cannot parse float. most likely is NaN"),
             UnexpectedChar(c) => write!(f, "unexpected character: {}", c),
             UnexpectedEof => write!(f, "unexpected end of file"),
-            UnknownOperator => write!(f, "unknown operator"),
+            UnrecognizedOperator => write!(f, "unrecognized operator"),
+            UnrecognizedToken => write!(f, "unrecognized token"),
             UnterminatedStringLiteral => write!(f, "unterminated string literal"),
         }
     }
@@ -119,7 +121,7 @@ impl<'input> Lexer<'input> {
     where
         F: FnMut(char) -> bool,
     {
-        self.chars.peek().map_or(false, |(_, ch)| test(*ch))
+        self.peek().map_or(false, |(_, ch)| test(ch))
     }
 
     fn take_while<F>(&mut self, start: Location, mut keep_going: F) -> (Location, &'input str)
@@ -159,7 +161,8 @@ impl<'input> Lexer<'input> {
     }
 
     fn next_loc(&mut self) -> Location {
-        let loc = self.loc;
+        let mut loc = self.loc;
+        loc.shift('a');
         self.peek().map_or(loc, |l| l.0)
     }
 
@@ -310,7 +313,7 @@ impl<'input> Lexer<'input> {
             "|" => Token::Vbar,
             _ => {
                 let span = Span::new(start, end);
-                return Err(Error::new(span, ErrorKind::UnknownOperator));
+                return Err(Error::new(span, ErrorKind::UnrecognizedOperator));
             }
         };
         spanned(start, end, token)
@@ -327,12 +330,8 @@ impl<'input> Lexer<'input> {
         }
         Ok(())
     }
-}
 
-impl<'input> Iterator for Lexer<'input> {
-    type Item = Result<SpannedToken<'input>, Error>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    fn next_token(&mut self) -> Option<Result<SpannedToken<'input>, Error>> {
         loop {
             return match self.bump() {
                 Some((loc, '\n')) => Some(spanned(loc, self.next_loc(), Token::Newline)),
@@ -355,9 +354,23 @@ impl<'input> Iterator for Lexer<'input> {
                 }
                 Some((start, ch)) if is_operator(ch) => Some(self.operator(start)),
                 Some((_, ch)) if ch.is_whitespace() => continue,
-                _ => None,
+                Some((loc, _ch)) => Some(self.error(loc, ErrorKind::UnrecognizedToken)),
+                None => None,
             };
         }
+    }
+}
+
+impl<'input> Iterator for Lexer<'input> {
+    type Item = Result<(Location, Token<'input>, Location), Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_token().map(|result| {
+            result.map(|spanned| {
+                let (token, span) = spanned.into_parts();
+                (span.start(), token, span.end())
+            })
+        })
     }
 }
 
@@ -400,12 +413,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_unrecognized_token() {
+        let mut lexer = Lexer::new("^");
+        let start = Location::new(0, 0, 0);
+        assert_eq!(
+            Some(error(start, ErrorKind::UnrecognizedToken)),
+            lexer.next_token()
+        );
+    }
+
+    #[test]
     fn test_lex_string() {
         let mut lexer = Lexer::new("  \"hello, there\"");
         let start = Location::new(0, 2, 2);
-        let end = Location::new(0, 15, 15);
+        let end = Location::new(0, 16, 16);
         let expected = Token::StringLiteral(StringLiteral::Escaped("hello, there"));
-        assert_eq!(Some(spanned(start, end, expected)), lexer.next());
+        assert_eq!(Some(spanned(start, end, expected)), lexer.next_token());
     }
 
     #[test]
@@ -414,24 +437,27 @@ mod tests {
         let start = Location::new(0, 2, 2);
         assert_eq!(
             Some(error(start, ErrorKind::UnterminatedStringLiteral)),
-            lexer.next()
+            lexer.next_token()
         );
     }
 
     #[test]
     fn test_lex_unterminated_escapecode() {
         let mut lexer = Lexer::new("  \"hello, th\\");
-        let start = Location::new(0, 12, 12);
-        assert_eq!(Some(error(start, ErrorKind::UnexpectedEof)), lexer.next());
+        let start = Location::new(0, 13, 13);
+        assert_eq!(
+            Some(error(start, ErrorKind::UnexpectedEof)),
+            lexer.next_token()
+        );
     }
 
     #[test]
     fn test_lex_raw_string() {
         let mut lexer = Lexer::new("  `hello, there`");
         let start = Location::new(0, 2, 2);
-        let end = Location::new(0, 15, 15);
+        let end = Location::new(0, 16, 16);
         let expected = Token::StringLiteral(StringLiteral::Raw("hello, there"));
-        assert_eq!(Some(spanned(start, end, expected)), lexer.next());
+        assert_eq!(Some(spanned(start, end, expected)), lexer.next_token());
     }
 
     #[test]
@@ -440,7 +466,7 @@ mod tests {
         let start = Location::new(0, 2, 2);
         assert_eq!(
             Some(error(start, ErrorKind::UnterminatedStringLiteral)),
-            lexer.next()
+            lexer.next_token()
         );
     }
 
@@ -450,7 +476,16 @@ mod tests {
         let start = Location::new(0, 2, 2);
         let end = Location::new(0, 6, 6);
         let expected = Token::IntLiteral(1234);
-        assert_eq!(Some(spanned(start, end, expected)), lexer.next());
+        assert_eq!(Some(spanned(start, end, expected)), lexer.next_token());
+    }
+
+    #[test]
+    fn test_lex_integer2() {
+        let mut lexer = Lexer::new(" 123");
+        let start = Location::new(0, 1, 1);
+        let end = Location::new(0, 4, 4);
+        let expected = Token::IntLiteral(123);
+        assert_eq!(Some(spanned(start, end, expected)), lexer.next_token());
     }
 
     #[test]
@@ -459,7 +494,7 @@ mod tests {
         let start = Location::new(0, 2, 2);
         let end = Location::new(0, 8, 8);
         let expected = Token::FloatLiteral(NotNan::new(-123.4).unwrap());
-        assert_eq!(Some(spanned(start, end, expected)), lexer.next());
+        assert_eq!(Some(spanned(start, end, expected)), lexer.next_token());
     }
 
     #[test]
@@ -468,7 +503,7 @@ mod tests {
         let start = Location::new(0, 2, 2);
         let end = Location::new(0, 9, 9);
         let expected = Token::FloatLiteral(NotNan::new(1234.0).unwrap());
-        assert_eq!(Some(spanned(start, end, expected)), lexer.next());
+        assert_eq!(Some(spanned(start, end, expected)), lexer.next_token());
     }
 
     #[test]
@@ -477,7 +512,7 @@ mod tests {
         let start = Location::new(0, 2, 2);
         let end = Location::new(0, 10, 10);
         let expected = Token::FloatLiteral(NotNan::new(1234.0).unwrap());
-        assert_eq!(Some(spanned(start, end, expected)), lexer.next());
+        assert_eq!(Some(spanned(start, end, expected)), lexer.next_token());
     }
 
     #[test]
@@ -486,7 +521,7 @@ mod tests {
         let start = Location::new(0, 2, 2);
         let end = Location::new(0, 10, 10);
         let expected = Token::FloatLiteral(NotNan::new(12.34).unwrap());
-        assert_eq!(Some(spanned(start, end, expected)), lexer.next());
+        assert_eq!(Some(spanned(start, end, expected)), lexer.next_token());
     }
 
     #[test]
@@ -495,7 +530,7 @@ mod tests {
         let start = Location::new(0, 2, 2);
         let end = Location::new(0, 9, 9);
         let expected = Token::FloatLiteral(NotNan::new(123.4).unwrap());
-        assert_eq!(Some(spanned(start, end, expected)), lexer.next());
+        assert_eq!(Some(spanned(start, end, expected)), lexer.next_token());
     }
 
     #[test]
@@ -513,7 +548,7 @@ mod tests {
             let mut lexer = Lexer::new(input);
             assert_eq!(
                 Some(error(*loc, ErrorKind::UnexpectedChar('a'))),
-                lexer.next()
+                lexer.next_token()
             );
         }
     }
@@ -542,7 +577,7 @@ mod tests {
         let start = Location::new(0, 2, 2);
         for (input, expected, end) in &cases {
             let mut lexer = Lexer::new(input);
-            assert_eq!(Some(spanned(start, *end, *expected)), lexer.next())
+            assert_eq!(Some(spanned(start, *end, *expected)), lexer.next_token())
         }
     }
 
@@ -554,14 +589,14 @@ mod tests {
                 "  # this is a comment\n",
                 Some(spanned(
                     Location::new(0, 21, 21),
-                    Location::new(0, 21, 21),
+                    Location::new(0, 22, 22),
                     Token::Newline,
                 )),
             ),
         ];
         for (input, expected) in &cases {
             let mut lexer = Lexer::new(input);
-            assert_eq!(*expected, lexer.next());
+            assert_eq!(*expected, lexer.next_token());
         }
     }
 
@@ -591,7 +626,33 @@ mod tests {
         let start = Location::new(0, 2, 2);
         for (input, expected, end) in &cases {
             let mut lexer = Lexer::new(input);
-            assert_eq!(Some(spanned(start, *end, *expected)), lexer.next())
+            assert_eq!(Some(spanned(start, *end, *expected)), lexer.next_token())
         }
+    }
+
+    #[test]
+    fn test_locations() {
+        let input = "1234\n  \"hello\"";
+        let lexer = Lexer::new(input);
+        let expected = vec![
+            Ok((
+                Location::new(0, 0, 0),
+                Token::IntLiteral(1234),
+                Location::new(0, 4, 4),
+            )),
+            Ok((
+                Location::new(0, 4, 4),
+                Token::Newline,
+                Location::new(1, 0, 5),
+            )),
+            Ok((
+                Location::new(1, 2, 7),
+                Token::StringLiteral(StringLiteral::Escaped("hello")),
+                Location::new(1, 9, 14),
+            )),
+        ];
+
+        let result = lexer.collect::<Vec<Result<(Location, Token<'static>, Location), Error>>>();
+        assert_eq!(expected, result);
     }
 }

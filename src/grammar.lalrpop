@@ -1,3 +1,5 @@
+use ordered_float::NotNan;
+
 use crate::Location;
 use crate::lexer::Error;
 use crate::token::Token;
@@ -5,8 +7,12 @@ use crate::token::Token;
 grammar<'input>(input: &'input str);
 
 pub Expr: () = {
-    "null"
+    Number
 };
+
+Number: () = {
+    "integer"
+}
 
 extern {
     type Location = Location;
@@ -14,5 +20,7 @@ extern {
 
     enum Token<'input> {
         "null" => Token::Null,
+        "integer" => Token::IntLiteral(<i64>),
+        "float" => Token::FloatLiteral(<NotNan<f64>>),
     }
 }
