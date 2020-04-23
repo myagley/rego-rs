@@ -11,10 +11,14 @@ extern {
     type Error = Error;
 
     enum Token<'input> {
-        "null" => Token::Null,
-        "true" => Token::True,
+        "as" => Token::As,
         "false" => Token::False,
+        "not" => Token::Not,
+        "null" => Token::Null,
         "set" => Token::Set,
+        "some" => Token::Some,
+        "true" => Token::True,
+        "with" => Token::With,
 
         "integer-literal" => Token::IntLiteral(<i64>),
         "float-literal" => Token::FloatLiteral(<NotNan<f64>>),
@@ -57,15 +61,11 @@ Comma<T>: () = {
     (T ",")* T?
 };
 
-Tier<Op, NextTier>: () = {
-    Tier<Op, NextTier> Op NextTier,
-    NextTier,
-};
-
 pub Query: () = {
     Literal ( QuerySep Literal )*
 };
 
+#[inline]
 QuerySep: () = {
     ";",
     "\r" "\n",
@@ -73,15 +73,31 @@ QuerySep: () = {
 };
 
 Literal: () = {
+    LiteralTarget WithModifier?
+}
+
+#[inline]
+LiteralTarget: () = {
     Expr,
+    SomeDecl,
+    "not" Expr,
+};
+
+WithModifier: () = {
+    "with" Term "as" Term,
+};
+
+SomeDecl: () = {
+    "some" Comma<Var>,
 };
 
 Expr: () = {
-    ExprInfix,
+    (Term "=")? Tier0,
 };
 
-ExprInfix: () = {
-    (Term "=")? Tier0,
+Tier<Op, NextTier>: () = {
+    Tier<Op, NextTier> Op NextTier,
+    NextTier,
 };
 
 Tier0 = Tier<Tier0Op, Tier1>;
@@ -117,6 +133,7 @@ Ref: () = {
     RefTarget RefArg*,
 };
 
+#[inline]
 RefTarget: () = {
     Var,
     Array,
@@ -124,15 +141,18 @@ RefTarget: () = {
     Set,
 };
 
+#[inline]
 RefArg: () = {
     RefArgDot,
     RefArgBrack,
 };
 
+#[inline]
 RefArgBrack: () = {
     "[" RefArgBrackParam "]"
 };
 
+#[inline]
 RefArgBrackParam: () = {
     Scalar,
     Var,
@@ -142,13 +162,22 @@ RefArgBrackParam: () = {
     "_",
 };
 
+#[inline]
 RefArgDot: () = {
     "." Var
+};
+
+// There is some ambiguity in the grammar
+// The left hand side should be Var ("." Var)*.
+// This conflicts with Ref
+ExprCall: () = {
+    Ref "(" Comma<Term> ")"
 };
 
 Term: () = {
     Ref,
     Scalar,
+    ExprCall,
     "(" <Expr> ")",
 };
 
@@ -167,12 +196,13 @@ EmptySet: () = "set" "(" ")";
 
 Object: () = "{" Comma<ObjectItem> "}";
 
+ObjectItem: () = ObjectKey ":" Term;
+
+#[inline]
 ObjectKey: () = {
     Scalar,
     Ref,
 };
-
-ObjectItem: () = ObjectKey ":" Term;
 
 Var: () = "id";
 

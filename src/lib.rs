@@ -298,6 +298,11 @@ mod tests {
             "a.b",
             "a[b]",
             "a[\"string\"]",
+            "time.now_ns()",
+            "not 1 + 3",
+            "some i, j",
+            "some i",
+            "a + b with {a:2} as b",
         ];
         for input in &cases {
             let lexer = Lexer::new(input);
