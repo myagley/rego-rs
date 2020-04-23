@@ -48,6 +48,8 @@ extern {
         ";" => Token::SemiColon,
         ":" => Token::Colon,
         "," => Token::Comma,
+        "." => Token::Dot,
+        "_" => Token::UnderScore,
     }
 }
 
@@ -111,15 +113,42 @@ Tier0Op: () = {
     "!=",
 };
 
-Ref: () = {};
+Ref: () = {
+    RefTarget RefArg*,
+};
+
+RefTarget: () = {
+    Var,
+    Array,
+    Object,
+    Set,
+};
+
+RefArg: () = {
+    RefArgDot,
+    RefArgBrack,
+};
+
+RefArgBrack: () = {
+    "[" RefArgBrackParam "]"
+};
+
+RefArgBrackParam: () = {
+    Scalar,
+    Var,
+    Array,
+    Object,
+    Set,
+    "_",
+};
+
+RefArgDot: () = {
+    "." Var
+};
 
 Term: () = {
     Ref,
-    Var,
     Scalar,
-    Array,
-    Set,
-    Object,
     "(" <Expr> ")",
 };
 
@@ -141,7 +170,6 @@ Object: () = "{" Comma<ObjectItem> "}";
 ObjectKey: () = {
     Scalar,
     Ref,
-    Var,
 };
 
 ObjectItem: () = ObjectKey ":" Term;

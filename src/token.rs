@@ -35,6 +35,7 @@ pub enum Token<'input> {
     Comma,
     Amper,
     Vbar,
+    UnderScore,
 
     As,
     Default,

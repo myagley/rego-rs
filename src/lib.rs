@@ -295,6 +295,9 @@ mod tests {
             "x = {2, 3, \"4\"}",
             "x = set( )",
             "x = {x: 3, \"y\": 4}",
+            "a.b",
+            "a[b]",
+            "a[\"string\"]",
         ];
         for input in &cases {
             let lexer = Lexer::new(input);

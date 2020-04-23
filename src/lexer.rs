@@ -286,6 +286,7 @@ impl<'input> Lexer<'input> {
             "some" => Token::Some,
             "true" => Token::True,
             "with" => Token::With,
+            "_" => Token::UnderScore,
             src => Token::Identifier(src),
         };
         spanned(start, end, token)
