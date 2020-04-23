@@ -14,12 +14,13 @@ extern {
         "null" => Token::Null,
         "true" => Token::True,
         "false" => Token::False,
+        "set" => Token::Set,
 
         "integer-literal" => Token::IntLiteral(<i64>),
         "float-literal" => Token::FloatLiteral(<NotNan<f64>>),
         "string-literal" => Token::StringLiteral(<StringLiteral<'input>>),
 
-        "var" => Token::Identifier(<&'input str>),
+        "id" => Token::Identifier(<&'input str>),
 
         "=" => Token::Equal,
         "==" => Token::EqualEqual,
@@ -45,8 +46,14 @@ extern {
         "\n" => Token::Newline,
         "\r" => Token::CarriageReturn,
         ";" => Token::SemiColon,
+        ":" => Token::Colon,
+        "," => Token::Comma,
     }
 }
+
+Comma<T>: () = {
+    (T ",")* T?
+};
 
 Tier<Op, NextTier>: () = {
     Tier<Op, NextTier> Op NextTier,
@@ -104,11 +111,42 @@ Tier0Op: () = {
     "!=",
 };
 
+Ref: () = {};
+
 Term: () = {
+    Ref,
+    Var,
     Scalar,
-    "var",
+    Array,
+    Set,
+    Object,
     "(" <Expr> ")",
 };
+
+Array: () = "["  Comma<Term> "]";
+
+Set: () = {
+    NonEmptySet,
+    EmptySet,
+};
+
+NonEmptySet: () = {
+    "{" (Term ",")* Term "}"
+}
+
+EmptySet: () = "set" "(" ")";
+
+Object: () = "{" Comma<ObjectItem> "}";
+
+ObjectKey: () = {
+    Scalar,
+    Ref,
+    Var,
+};
+
+ObjectItem: () = ObjectKey ":" Term;
+
+Var: () = "id";
 
 Scalar: () = {
     String,

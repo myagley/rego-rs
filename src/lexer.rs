@@ -282,6 +282,7 @@ impl<'input> Lexer<'input> {
             "not" => Token::Not,
             "null" => Token::Null,
             "package" => Token::Package,
+            "set" => Token::Set,
             "some" => Token::Some,
             "true" => Token::True,
             "with" => Token::With,

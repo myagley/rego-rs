@@ -291,6 +291,10 @@ mod tests {
             "x = 3; y=4",
             "x = 3\ny=4",
             "x = 3\r\ny=4",
+            "x = [2, 3, 4]",
+            "x = {2, 3, \"4\"}",
+            "x = set( )",
+            "x = {x: 3, \"y\": 4}",
         ];
         for input in &cases {
             let lexer = Lexer::new(input);

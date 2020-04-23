@@ -44,6 +44,7 @@ pub enum Token<'input> {
     Not,
     Null,
     Package,
+    Set,
     Some,
     True,
     With,
