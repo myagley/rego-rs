@@ -93,7 +93,7 @@ RuleBody: () = {
 };
 
 pub Query: () = {
-    Literal ( ";"+ Literal )* ";"+
+    Literal ( ";"+ Literal )* ";"?
 };
 
 #[inline]
@@ -122,7 +122,7 @@ SomeDecl: () = {
 };
 
 Expr: () = {
-    (Term "=")? Tier0,
+    (Term AssignOrEqual)? Tier0,
 };
 
 Tier<Op, NextTier>: () = {
@@ -167,8 +167,11 @@ Ref: () = {
 RefTarget: () = {
     Var,
     Array,
+    ArrayCompr,
     Object,
+    ObjectCompr,
     Set,
+    SetCompr,
 };
 
 #[inline]
@@ -210,6 +213,12 @@ Term: () = {
     ExprCall,
     "(" <Expr> ")",
 };
+
+ArrayCompr: () = "[" Term  "|" Query "]";
+
+SetCompr: () = "{" Term "|" Query "}";
+
+ObjectCompr: () = "{" ObjectItem "|" Query "}";
 
 Array: () = "["  Comma<Term> "]";
 

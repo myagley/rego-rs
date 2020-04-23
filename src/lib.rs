@@ -303,6 +303,18 @@ mod tests {
             "some i, j",
             "some i",
             "a + b with {a:2} as b",
+            "name := [name | sites[i].region == region; name := sites[i].name;]",
+            "b := {x | x:=a[_]}",
+            r#"
+                app_to_hostnames := {app.name : hostnames |
+                    app:=apps[_]
+                    hostnames := [hostname |
+                                    name := app.servers[_]
+                                    s := sites[_].servers[_]
+                                    s.name == name
+                                    hostname := s.hostname]
+                }
+            "#,
         ];
         for input in &cases {
             let lexer = Lexer::new(input);
