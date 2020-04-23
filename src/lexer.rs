@@ -386,13 +386,7 @@ impl<'input> Lexer<'input> {
                 Some((start, ch)) if is_operator(ch) => Some(self.operator(start)),
                 Some((_, ch)) if ch.is_whitespace() => continue,
                 Some((loc, _ch)) => Some(self.error(loc, ErrorKind::UnrecognizedToken)),
-                None => {
-                    if self.should_inject_semicolon() {
-                        Some(spanned(self.next_loc(), self.next_loc(), Token::SemiColon))
-                    } else {
-                        None
-                    }
-                }
+                None => None,
             };
 
             self.prev = next.and_then(|r| r.ok().map(|spanned| *spanned.value()));
@@ -678,11 +672,6 @@ mod tests {
             Ok((
                 Location::new(1, 2, 7),
                 Token::StringLiteral(StringLiteral::Escaped("hello")),
-                Location::new(1, 9, 14),
-            )),
-            Ok((
-                Location::new(1, 9, 14),
-                Token::SemiColon,
                 Location::new(1, 9, 14),
             )),
         ];
