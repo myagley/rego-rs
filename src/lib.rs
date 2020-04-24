@@ -1,13 +1,13 @@
 use std::fmt;
 use std::ops::Range;
 
-mod ast;
+pub mod ast;
 mod error;
-mod parser;
+pub mod parser;
 mod value;
 
 pub use error::Error;
-pub use value::Value;
+pub use value::{Number, Value};
 
 /// The zero-indexed line offset into a file
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]

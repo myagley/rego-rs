@@ -82,11 +82,11 @@ Package: () = "package" Ref ";"+;
 Policy: () = Rule*;
 
 Rule: () = {
-    "default"? RuleHead RuleBody* ";"+
-};
-
-RuleHead: () = {
-    Var ( "(" Comma<Term> ")" )? ( "[" Term "]" )? ( AssignOrEqual Term )?
+    "default" Var "=" Term ";"+,
+    Var ( AssignOrEqual Term )? RuleBody* ";"+,
+    Var "[" Term "]" RuleBody* ";"+,
+    Var "[" Term "]" "=" Term RuleBody* ";"+,
+    Var "(" Comma<Term> ")" "=" Term RuleBody* ";"+,
 };
 
 #[inline]
