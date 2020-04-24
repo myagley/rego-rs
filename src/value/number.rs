@@ -38,7 +38,7 @@ impl Number {
     pub fn try_into_i64(self) -> Result<i64, Error> {
         match self.n {
             N::Int(n) => Ok(n),
-            N::Float(_) => Err(Error::InvalidType("i64", self.into())),
+            N::Float(_) => Err(Error::InvalidType("i64", "f64")),
         }
     }
 

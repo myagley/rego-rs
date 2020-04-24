@@ -3,11 +3,10 @@ use std::fmt;
 use serde::{de, ser};
 
 use crate::lexer::Error as LexerError;
-use crate::value::Value;
 
 #[derive(Debug, Clone)]
 pub enum Error {
-    InvalidType(&'static str, Value),
+    InvalidType(&'static str, &'static str),
     Lexer(LexerError),
     SerializeValue(String),
     DeserializeValue(String),

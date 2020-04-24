@@ -12,6 +12,7 @@ mod value;
 pub use error::Error;
 pub use lexer::Lexer;
 pub use token::Token;
+pub use value::Value;
 
 /// The zero-indexed line offset into a file
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]

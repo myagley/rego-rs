@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
@@ -14,17 +15,17 @@ pub type Map<K, V> = BTreeMap<K, V>;
 pub type Set<V> = BTreeSet<V>;
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
-pub enum Value {
+pub enum Value<'a> {
     Null,
     Bool(bool),
     Number(Number),
-    String(String),
-    Array(Vec<Value>),
-    Object(Map<String, Value>),
-    Set(Set<Value>),
+    String(Cow<'a, str>),
+    Array(Vec<Value<'a>>),
+    Object(Map<String, Value<'a>>),
+    Set(Set<Value<'a>>),
 }
 
-impl fmt::Debug for Value {
+impl<'a> fmt::Debug for Value<'a> {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Value::Null => formatter.debug_tuple("Null").finish(),
@@ -38,13 +39,13 @@ impl fmt::Debug for Value {
     }
 }
 
-impl fmt::Display for Value {
+impl<'a> fmt::Display for Value<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Value::Null => write!(f, "null"),
             Value::Bool(ref v) => fmt::Display::fmt(v, f),
             Value::Number(ref v) => fmt::Display::fmt(v, f),
-            Value::String(ref v) => write!(f, "\"{}\"", v.escape_default()),
+            Value::String(ref v) => write!(f, "\"{}\"", v),
             Value::Array(ref v) => {
                 write!(f, "[")?;
                 let mut iter = v.iter();
@@ -89,36 +90,36 @@ impl fmt::Display for Value {
     }
 }
 
-impl Default for Value {
-    fn default() -> Value {
+impl<'a> Default for Value<'a> {
+    fn default() -> Value<'a> {
         Value::Null
     }
 }
 
-impl Value {
-    pub fn get<I: Index>(&self, index: I) -> Option<&Value> {
+impl<'a> Value<'a> {
+    pub fn get<I: Index>(&self, index: I) -> Option<&Value<'a>> {
         index.index_into(self)
     }
 
-    pub fn get_mut<I: Index>(&mut self, index: I) -> Option<&mut Value> {
+    pub fn get_mut<I: Index>(&mut self, index: I) -> Option<&mut Value<'a>> {
         index.index_into_mut(self)
     }
 
-    pub fn try_into_set(self) -> Result<Set<Value>, Error> {
+    pub fn try_into_set(self) -> Result<Set<Value<'a>>, Error> {
         match self {
             Value::Set(v) => Ok(v),
-            v => Err(Error::InvalidType("set", v)),
+            v => Err(Error::InvalidType("set", Type(&v).ty())),
         }
     }
 
-    pub fn as_set(&self) -> Option<&Set<Value>> {
+    pub fn as_set(&self) -> Option<&Set<Value<'a>>> {
         match *self {
             Value::Set(ref set) => Some(set),
             _ => None,
         }
     }
 
-    pub fn as_set_mut(&mut self) -> Option<&mut Set<Value>> {
+    pub fn as_set_mut(&mut self) -> Option<&mut Set<Value<'a>>> {
         match *self {
             Value::Set(ref mut set) => Some(set),
             _ => None,
@@ -129,21 +130,21 @@ impl Value {
         self.as_set().is_some()
     }
 
-    pub fn try_into_object(self) -> Result<Map<String, Value>, Error> {
+    pub fn try_into_object(self) -> Result<Map<String, Value<'a>>, Error> {
         match self {
             Value::Object(map) => Ok(map),
-            v => Err(Error::InvalidType("object", v)),
+            v => Err(Error::InvalidType("object", Type(&v).ty())),
         }
     }
 
-    pub fn as_object(&self) -> Option<&Map<String, Value>> {
+    pub fn as_object(&self) -> Option<&Map<String, Value<'a>>> {
         match *self {
             Value::Object(ref map) => Some(map),
             _ => None,
         }
     }
 
-    pub fn as_object_mut(&mut self) -> Option<&mut Map<String, Value>> {
+    pub fn as_object_mut(&mut self) -> Option<&mut Map<String, Value<'a>>> {
         match *self {
             Value::Object(ref mut map) => Some(map),
             _ => None,
@@ -154,21 +155,21 @@ impl Value {
         self.as_object().is_some()
     }
 
-    pub fn try_into_array(self) -> Result<Vec<Value>, Error> {
+    pub fn try_into_array(self) -> Result<Vec<Value<'a>>, Error> {
         match self {
             Value::Array(array) => Ok(array),
-            v => Err(Error::InvalidType("array", v)),
+            v => Err(Error::InvalidType("array", Type(&v).ty())),
         }
     }
 
-    pub fn as_array(&self) -> Option<&Vec<Value>> {
+    pub fn as_array(&self) -> Option<&Vec<Value<'a>>> {
         match *self {
             Value::Array(ref array) => Some(array),
             _ => None,
         }
     }
 
-    pub fn as_array_mut(&mut self) -> Option<&mut Vec<Value>> {
+    pub fn as_array_mut(&mut self) -> Option<&mut Vec<Value<'a>>> {
         match *self {
             Value::Array(ref mut array) => Some(array),
             _ => None,
@@ -179,10 +180,10 @@ impl Value {
         self.as_array().is_some()
     }
 
-    pub fn try_into_string(self) -> Result<String, Error> {
+    pub fn try_into_string(self) -> Result<Cow<'a, str>, Error> {
         match self {
             Value::String(string) => Ok(string),
-            v => Err(Error::InvalidType("string", v)),
+            v => Err(Error::InvalidType("string", Type(&v).ty())),
         }
     }
 
@@ -207,7 +208,7 @@ impl Value {
     pub fn try_into_i64(self) -> Result<i64, Error> {
         match self {
             Value::Number(n) => n.try_into_i64(),
-            v => Err(Error::InvalidType("i64", v)),
+            v => Err(Error::InvalidType("i64", Type(&v).ty())),
         }
     }
 
@@ -228,7 +229,7 @@ impl Value {
     pub fn try_into_f64(self) -> Result<f64, Error> {
         match self {
             Value::Number(n) => n.try_into_f64(),
-            v => Err(Error::InvalidType("f64", v)),
+            v => Err(Error::InvalidType("f64", Type(&v).ty())),
         }
     }
 
@@ -249,7 +250,7 @@ impl Value {
     pub fn try_into_bool(self) -> Result<bool, Error> {
         match self {
             Value::Bool(b) => Ok(b),
-            v => Err(Error::InvalidType("bool", v)),
+            v => Err(Error::InvalidType("bool", Type(&v).ty())),
         }
     }
 
@@ -273,5 +274,35 @@ impl Value {
 
     pub fn is_null(&self) -> bool {
         self.as_null().is_some()
+    }
+}
+
+struct Type<'a, 'v>(&'a Value<'v>);
+
+impl<'a, 'v> Type<'a, 'v> {
+    pub fn ty(&self) -> &'static str {
+        match *self.0 {
+            Value::Null => "null",
+            Value::Bool(_) => "bool",
+            Value::Number(_) => "number",
+            Value::String(_) => "string",
+            Value::Array(_) => "array",
+            Value::Object(_) => "object",
+            Value::Set(_) => "set",
+        }
+    }
+}
+
+impl<'a, 'v> fmt::Display for Type<'a, 'v> {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        match *self.0 {
+            Value::Null => formatter.write_str("null"),
+            Value::Bool(_) => formatter.write_str("bool"),
+            Value::Number(_) => formatter.write_str("number"),
+            Value::String(_) => formatter.write_str("string"),
+            Value::Array(_) => formatter.write_str("array"),
+            Value::Object(_) => formatter.write_str("object"),
+            Value::Set(_) => formatter.write_str("set"),
+        }
     }
 }
