@@ -2,7 +2,7 @@ use std::fmt;
 
 use serde::{de, ser};
 
-use crate::lexer::Error as LexerError;
+use crate::parser::lexer::Error as LexerError;
 
 #[derive(Debug, Clone)]
 pub enum Error {

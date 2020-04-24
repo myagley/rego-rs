@@ -16,9 +16,6 @@ pub enum Token<'input> {
     ParenClose,
     ParenOpen,
 
-    Newline,
-    CarriageReturn,
-
     Plus,
     Minus,
     Star,

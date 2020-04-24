@@ -2,8 +2,8 @@ use ordered_float::NotNan;
 
 use crate::Location;
 use crate::ast::*;
-use crate::lexer::Error;
-use crate::token::{StringLiteral, Token};
+use crate::parser::lexer::Error;
+use crate::parser::token::{StringLiteral, Token};
 use crate::value::{Number, Value};
 
 grammar<'input>(input: &'input str);
@@ -53,8 +53,6 @@ extern {
         "{" => Token::BraceOpen,
         "}" => Token::BraceClose,
 
-        "\n" => Token::Newline,
-        "\r" => Token::CarriageReturn,
         ";" => Token::SemiColon,
         ":" => Token::Colon,
         "," => Token::Comma,
@@ -111,12 +109,6 @@ pub Query: Query<'input> = {
     }
 };
 
-#[inline]
-Newline: () = {
-    "\r" "\n",
-    "\n",
-}
-
 Statement: Statement<'input>  = {
     <StatementTarget> <WithModifier*> => Statement::new(<>),
 }
@@ -132,7 +124,7 @@ WithModifier: With<'input> = {
     "with" <Term> "as" <Term> => With::new(<>),
 };
 
-Expr: Box<Term<'input>> = {
+pub Expr: Box<Term<'input>> = {
     Term AssignOrEqual Tier0 => Box::new(Term::BinOp(<>)),
     Tier0,
 };

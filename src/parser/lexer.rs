@@ -4,7 +4,7 @@ use std::str::Chars;
 
 use ordered_float::NotNan;
 
-use crate::token::{StringLiteral, Token};
+use crate::parser::token::{StringLiteral, Token};
 use crate::{Location, Span, Spanned};
 
 pub type SpannedToken<'i> = Spanned<Token<'i>>;
