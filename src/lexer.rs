@@ -187,14 +187,21 @@ impl<'input> Lexer<'input> {
 
     fn string_literal(&mut self, start: Location) -> Result<SpannedToken<'input>, Error> {
         let content_start = self.next_loc();
+        let mut contains_escape = false;
         loop {
             match self.bump() {
                 Some((_, '\\')) => {
+                    contains_escape = true;
                     self.escape_code()?;
                 }
                 Some((content_end, '"')) => {
                     let end = self.next_loc();
-                    let s = StringLiteral::Escaped(self.slice(content_start, content_end));
+                    let s = self.slice(content_start, content_end);
+                    let s = if contains_escape {
+                        StringLiteral::Escaped(s)
+                    } else {
+                        StringLiteral::Str(s)
+                    };
                     return spanned(start, end, Token::StringLiteral(s));
                 }
                 Some((_loc, _ch)) => continue,
@@ -210,7 +217,7 @@ impl<'input> Lexer<'input> {
             match self.bump() {
                 Some((content_end, '`')) => {
                     let end = self.next_loc();
-                    let s = StringLiteral::Raw(self.slice(content_start, content_end));
+                    let s = StringLiteral::Str(self.slice(content_start, content_end));
                     return spanned(start, end, Token::StringLiteral(s));
                 }
                 Some((_loc, _ch)) => continue,
@@ -461,7 +468,7 @@ mod tests {
         let mut lexer = Lexer::new("  \"hello, there\"");
         let start = Location::new(0, 2, 2);
         let end = Location::new(0, 16, 16);
-        let expected = Token::StringLiteral(StringLiteral::Escaped("hello, there"));
+        let expected = Token::StringLiteral(StringLiteral::Str("hello, there"));
         assert_eq!(Some(spanned(start, end, expected)), lexer.next_token());
     }
 
@@ -490,7 +497,7 @@ mod tests {
         let mut lexer = Lexer::new("  `hello, there`");
         let start = Location::new(0, 2, 2);
         let end = Location::new(0, 16, 16);
-        let expected = Token::StringLiteral(StringLiteral::Raw("hello, there"));
+        let expected = Token::StringLiteral(StringLiteral::Str("hello, there"));
         assert_eq!(Some(spanned(start, end, expected)), lexer.next_token());
     }
 
@@ -671,7 +678,7 @@ mod tests {
             )),
             Ok((
                 Location::new(1, 2, 7),
-                Token::StringLiteral(StringLiteral::Escaped("hello")),
+                Token::StringLiteral(StringLiteral::Str("hello")),
                 Location::new(1, 9, 14),
             )),
         ];

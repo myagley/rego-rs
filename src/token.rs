@@ -53,6 +53,9 @@ pub enum Token<'input> {
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum StringLiteral<'input> {
+    /// str needs escaping
     Escaped(&'input str),
-    Raw(&'input str),
+
+    /// str does not need escaping
+    Str(&'input str),
 }
