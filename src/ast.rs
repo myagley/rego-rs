@@ -1,5 +1,43 @@
 use crate::value::Value;
 
+pub struct Query<'input> {
+    statements: Vec<Statement<'input>>,
+}
+
+impl<'input> Query<'input> {
+    pub fn new(statements: Vec<Statement<'input>>) -> Self {
+        Self { statements }
+    }
+}
+
+pub struct Statement<'input> {
+    target: StatementTarget<'input>,
+    with: Vec<With<'input>>,
+}
+
+impl<'input> Statement<'input> {
+    pub fn new(target: StatementTarget<'input>, with: Vec<With<'input>>) -> Self {
+        Self { target, with }
+    }
+}
+
+pub struct With<'input> {
+    term: Box<Term<'input>>,
+    as_term: Box<Term<'input>>,
+}
+
+impl<'input> With<'input> {
+    pub fn new(term: Box<Term<'input>>, as_term: Box<Term<'input>>) -> Self {
+        Self { term, as_term }
+    }
+}
+
+pub enum StatementTarget<'input> {
+    Expr(Box<Term<'input>>),
+    NotExpr(Box<Term<'input>>),
+    Some(Vec<&'input str>),
+}
+
 pub enum Term<'input> {
     BinOp(Box<Term<'input>>, Opcode, Box<Term<'input>>),
     Scalar(Value<'input>),
@@ -63,4 +101,6 @@ pub enum Opcode {
     Gte,
     EqEq,
     Ne,
+    Eq,
+    Assign,
 }

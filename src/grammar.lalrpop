@@ -92,17 +92,23 @@ RuleHead: () = {
 };
 
 #[inline]
-AssignOrEqual: () = {
-    ":=",
-    "=",
+AssignOrEqual: Opcode = {
+    ":=" => Opcode::Assign,
+    "=" => Opcode::Eq,
 };
 
 RuleBody: () = {
     ( "else" ( "=" Term)?)? "{" Query "}",
 };
 
-pub Query: () = {
-    Statement ( ";"+ Statement )* ";"?
+pub Query: Query<'input> = {
+    <h:Statement> <t:( ";"+ <Statement> )*> ";"? => {
+        let mut t = t;
+        t.reverse();
+        t.push(h);
+        t.reverse();
+        Query::new(t)
+    }
 };
 
 #[inline]
@@ -111,27 +117,24 @@ Newline: () = {
     "\n",
 }
 
-Statement: () = {
-    StatementTarget WithModifier*
+Statement: Statement<'input>  = {
+    <StatementTarget> <WithModifier*> => Statement::new(<>),
 }
 
 #[inline]
-StatementTarget: () = {
-    Expr,
-    SomeDecl,
-    "not" Expr,
+StatementTarget: StatementTarget<'input> = {
+    Expr => StatementTarget::Expr(<>),
+    "not" <Expr> => StatementTarget::NotExpr(<>),
+    "some" <Comma<Var>> => StatementTarget::Some(<>),
 };
 
-WithModifier: () = {
-    "with" Term "as" Term,
+WithModifier: With<'input> = {
+    "with" <Term> "as" <Term> => With::new(<>),
 };
 
-SomeDecl: () = {
-    "some" Comma<Var>,
-};
-
-Expr: () = {
-    (Term AssignOrEqual)? Tier0,
+Expr: Box<Term<'input>> = {
+    Term AssignOrEqual Tier0 => Box::new(Term::BinOp(<>)),
+    Tier0,
 };
 
 Tier<Op, NextTier>: Box<Term<'input>> = {
