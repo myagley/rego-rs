@@ -3,6 +3,7 @@ use std::ops::Range;
 
 use lalrpop_util::lalrpop_mod;
 
+mod ast;
 mod error;
 lalrpop_mod!(grammar);
 mod lexer;

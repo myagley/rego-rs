@@ -1,8 +1,10 @@
 use ordered_float::NotNan;
 
 use crate::Location;
+use crate::ast::*;
 use crate::lexer::Error;
 use crate::token::{StringLiteral, Token};
+use crate::value::{Number, Value};
 
 grammar<'input>(input: &'input str);
 
@@ -62,8 +64,15 @@ extern {
     }
 }
 
-Comma<T>: () = {
-    (T ",")* T?
+Comma<T>: Vec<T> = {
+    <v:(<T> ",")*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            let mut v = v;
+            v.push(e);
+            v
+        }
+    }
 };
 
 pub Module: () = Package Import* Policy;
@@ -93,7 +102,7 @@ RuleBody: () = {
 };
 
 pub Query: () = {
-    Literal ( ";"+ Literal )* ";"?
+    Statement ( ";"+ Statement )* ";"?
 };
 
 #[inline]
@@ -102,12 +111,12 @@ Newline: () = {
     "\n",
 }
 
-Literal: () = {
-    LiteralTarget WithModifier?
+Statement: () = {
+    StatementTarget WithModifier*
 }
 
 #[inline]
-LiteralTarget: () = {
+StatementTarget: () = {
     Expr,
     SomeDecl,
     "not" Expr,
@@ -125,8 +134,8 @@ Expr: () = {
     (Term AssignOrEqual)? Tier0,
 };
 
-Tier<Op, NextTier>: () = {
-    Tier<Op, NextTier> Op NextTier,
+Tier<Op, NextTier>: Box<Term<'input>> = {
+    Tier<Op, NextTier> Op NextTier => Box::new(Term::BinOp(<>)),
     NextTier,
 };
 
@@ -135,83 +144,83 @@ Tier1 = Tier<Tier1Op, Tier2>;
 Tier2 = Tier<Tier2Op, Tier3>;
 Tier3 = Tier<Tier3Op, Term>;
 
-Tier3Op: () = {
-    "*",
-    "/",
-    "&",
-    "|",
+Tier3Op: Opcode = {
+    "*" => Opcode::Mul,
+    "/" => Opcode::Div,
+    "&" => Opcode::And,
+    "|" => Opcode::Or,
 };
 
-Tier2Op: () = {
-    "+",
-    "-",
+Tier2Op: Opcode = {
+    "+" => Opcode::Add,
+    "-" => Opcode::Sub,
 };
 
-Tier1Op: () = {
-    "<",
-    "<=",
-    ">",
-    ">=",
+Tier1Op: Opcode = {
+    "<" => Opcode::Lt,
+    "<=" => Opcode::Lte,
+    ">" => Opcode::Gt,
+    ">=" => Opcode::Gte,
 };
 
-Tier0Op: () = {
-    "==",
-    "!=",
+Tier0Op: Opcode = {
+    "==" => Opcode::EqEq,
+    "!=" => Opcode::Ne,
 };
 
-Ref: () = {
-    RefTarget RefArg*,
-};
-
-#[inline]
-RefTarget: () = {
-    Var,
-    Array,
-    ArrayCompr,
-    Object,
-    ObjectCompr,
-    Set,
-    SetCompr,
+Ref: Ref<'input> = {
+    <t:RefTarget> <a:RefArg*> => Ref::new(Box::new(t), a),
 };
 
 #[inline]
-RefArg: () = {
+RefTarget: RefTarget<'input> = {
+    Var => RefTarget::Var(<>),
+    Array => RefTarget::Collection(<>),
+    ArrayCompr => RefTarget::ArrayCompr,
+    Object => RefTarget::Collection(<>),
+    ObjectCompr => RefTarget::ObjectCompr,
+    Set => RefTarget::Collection(<>),
+    SetCompr => RefTarget::SetCompr,
+    ExprCall => RefTarget::ExprCall(<>),
+};
+
+#[inline]
+RefArg: RefArg<'input> = {
     RefArgDot,
     RefArgBrack,
 };
 
 #[inline]
-RefArgBrack: () = {
-    "[" RefArgBrackParam "]"
+RefArgBrack: RefArg<'input> = {
+    "[" <RefArgBrackParam> "]"
 };
 
 #[inline]
-RefArgBrackParam: () = {
-    Scalar,
-    Var,
-    Array,
-    Object,
-    Set,
-    "_",
+RefArgBrackParam: RefArg<'input> = {
+    Scalar => RefArg::Scalar(<>),
+    Var => RefArg::Var(<>),
+    Array => RefArg::Collection(<>),
+    Object => RefArg::Collection(<>),
+    Set => RefArg::Collection(<>),
+    "_" => RefArg::Anon,
 };
 
 #[inline]
-RefArgDot: () = {
-    "." Var
+RefArgDot: RefArg<'input> = {
+    "." <Var> => RefArg::Var(<>),
 };
 
 // There is some ambiguity in the grammar
 // The left hand side should be Var ("." Var)*.
 // This conflicts with Ref
-ExprCall: () = {
-    Ref "(" Comma<Term> ")"
+ExprCall: ExprCall<'input> = {
+    <r:Ref> "(" <t:Comma<Term>> ")" => ExprCall::new(r, t),
 };
 
-Term: () = {
-    Ref,
-    Scalar,
-    ExprCall,
-    "(" <Expr> ")",
+Term: Box<Term<'input>> = {
+    Ref => Box::new(Term::Ref(<>)),
+    Scalar => Box::new(Term::Scalar(<>)),
+    "(" <Tier0> ")",
 };
 
 ArrayCompr: () = "[" Term  "|" Query "]";
@@ -220,48 +229,60 @@ SetCompr: () = "{" Term "|" Query "}";
 
 ObjectCompr: () = "{" ObjectItem "|" Query "}";
 
-Array: () = "["  Comma<Term> "]";
+Array: Collection<'input> = "["  <Comma<Term>> "]" => Collection::Array(<>);
 
-Set: () = {
+Set: Collection<'input> = {
     NonEmptySet,
     EmptySet,
 };
 
-NonEmptySet: () = {
-    "{" (Term ",")* Term "}"
+NonEmptySet: Collection<'input> = {
+    "{" <v:(<Term> ",")*> <e:Term> "}" => {
+        let mut v = v;
+        v.push(e);
+        Collection::Set(v)
+    }
 }
 
-EmptySet: () = "set" "(" ")";
+EmptySet: Collection<'input> = "set" "(" ")" => Collection::Set(vec![]);
 
-Object: () = "{" Comma<ObjectItem> "}";
+Object: Collection<'input> = "{" <Comma<ObjectItem>> "}" => Collection::Object(<>);
 
-ObjectItem: () = ObjectKey ":" Term;
+ObjectItem: (Box<Term<'input>>, Box<Term<'input>>) = <k:ObjectKey> ":" <v:Term> => (k, v);
 
 #[inline]
-ObjectKey: () = {
-    Scalar,
-    Ref,
+ObjectKey: Box<Term<'input>> = {
+    Scalar => Box::new(Term::Scalar(<>)),
+    Ref => Box::new(Term::Ref(<>)),
 };
 
-Var: () = "id";
+Var: &'input str = "id";
 
-Scalar: () = {
-    String,
-    Number,
+Scalar: Value<'input> = {
     Bool,
-    "null",
+    Null,
+    Number,
+    String,
 };
 
-Bool: () = {
-    "true",
-    "false",
+#[inline]
+Null: Value<'input> = {
+    "null" => Value::Null,
 };
 
-String: () = {
-    "string-literal"
+#[inline]
+Bool: Value<'input> = {
+    "true" => Value::Bool(true),
+    "false" => Value::Bool(false),
 };
 
-Number: () = {
-    "integer-literal",
-    "float-literal",
+#[inline]
+String: Value<'input> = {
+    "string-literal" => Value::String(<>.unescape()),
+};
+
+#[inline]
+Number: Value<'input> = {
+    "integer-literal" => Value::Number(Number::from(<>)),
+    "float-literal" => Value::Number(Number::from(<>)),
 };

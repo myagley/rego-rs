@@ -1,6 +1,6 @@
 use std::fmt;
 
-use ordered_float::OrderedFloat;
+use ordered_float::{NotNan, OrderedFloat};
 use serde::de::{self, Visitor};
 use serde::{forward_to_deserialize_any, Deserialize, Deserializer, Serialize, Serializer};
 
@@ -132,6 +132,13 @@ macro_rules! impl_from_float {
 }
 
 impl_from_float!(f32, f64);
+
+impl From<NotNan<f64>> for Number {
+    fn from(f: NotNan<f64>) -> Self {
+        let n = N::Float(OrderedFloat(f.into_inner()));
+        Number { n }
+    }
+}
 
 impl Serialize for Number {
     #[inline]
