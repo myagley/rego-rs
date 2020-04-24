@@ -7,6 +7,7 @@ edition = "2018"
 [dependencies]
 lalrpop-util = "0.18"
 ordered-float = "1"
+serde = "1"
 
 [build-dependencies]
 lalrpop = "0.18"

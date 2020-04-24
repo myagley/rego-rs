@@ -3,10 +3,13 @@ use std::ops::Range;
 
 use lalrpop_util::lalrpop_mod;
 
+mod error;
 lalrpop_mod!(grammar);
 mod lexer;
 mod token;
+mod value;
 
+pub use error::Error;
 pub use lexer::Lexer;
 pub use token::Token;
 
