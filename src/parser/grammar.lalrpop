@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use ordered_float::NotNan;
 
 use crate::Location;
@@ -202,7 +204,7 @@ RefArgBrackParam: RefArg<'input> = {
 
 #[inline]
 RefArgDot: RefArg<'input> = {
-    "." <Var> => RefArg::Var(<>),
+    "." <Var> => RefArg::Scalar(Value::String(Cow::Borrowed(<>))),
 };
 
 // There is some ambiguity in the grammar
