@@ -28,12 +28,12 @@ mod tests {
     #[test]
     fn test_expr_parse() {
         let cases = [
-            (" 123", Box::new(Term::Scalar(123.into()))),
-            (" 123.4", Box::new(Term::Scalar(123.4.into()))),
-            ("\"hello\"", Box::new(Term::Scalar("hello".into()))),
+            (" 123", Term::Scalar(123.into())),
+            (" 123.4", Term::Scalar(123.4.into())),
+            ("\"hello\"", Term::Scalar("hello".into())),
             (
                 "x := (1 + 2) * 3 >= `sfs`",
-                Box::new(Term::BinOp(
+                Term::BinOp(
                     Box::new(Term::Ref(Ref::new(Box::new(RefTarget::Var("x")), vec![]))),
                     Opcode::Assign,
                     Box::new(Term::BinOp(
@@ -49,7 +49,7 @@ mod tests {
                         Opcode::Gte,
                         Box::new(Term::Scalar("sfs".into())),
                     )),
-                )),
+                ),
             ),
         ];
         for (input, expected) in &cases {

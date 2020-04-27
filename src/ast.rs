@@ -25,20 +25,20 @@ impl<'input> Statement<'input> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct With<'input> {
-    term: Box<Term<'input>>,
-    as_term: Box<Term<'input>>,
+    term: Term<'input>,
+    as_term: Term<'input>,
 }
 
 impl<'input> With<'input> {
-    pub fn new(term: Box<Term<'input>>, as_term: Box<Term<'input>>) -> Self {
+    pub fn new(term: Term<'input>, as_term: Term<'input>) -> Self {
         Self { term, as_term }
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StatementTarget<'input> {
-    Expr(Box<Term<'input>>),
-    NotExpr(Box<Term<'input>>),
+    Expr(Term<'input>),
+    NotExpr(Term<'input>),
     Some(Vec<&'input str>),
 }
 
@@ -82,20 +82,20 @@ pub enum RefArg<'input> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExprCall<'input> {
     target: Ref<'input>,
-    args: Vec<Box<Term<'input>>>,
+    args: Vec<Term<'input>>,
 }
 
 impl<'input> ExprCall<'input> {
-    pub fn new(target: Ref<'input>, args: Vec<Box<Term<'input>>>) -> Self {
+    pub fn new(target: Ref<'input>, args: Vec<Term<'input>>) -> Self {
         Self { target, args }
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Collection<'input> {
-    Array(Vec<Box<Term<'input>>>),
-    Set(Vec<Box<Term<'input>>>),
-    Object(Vec<(Box<Term<'input>>, Box<Term<'input>>)>),
+    Array(Vec<Term<'input>>),
+    Set(Vec<Term<'input>>),
+    Object(Vec<(Term<'input>, Term<'input>)>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

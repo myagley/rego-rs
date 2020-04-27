@@ -126,13 +126,13 @@ WithModifier: With<'input> = {
     "with" <Term> "as" <Term> => With::new(<>),
 };
 
-pub Expr: Box<Term<'input>> = {
-    Term AssignOrEqual Tier0 => Box::new(Term::BinOp(<>)),
+pub Expr: Term<'input> = {
+    <l:Term> <op:AssignOrEqual> <r:Tier0> => Term::BinOp(Box::new(l), op, Box::new(r)),
     Tier0,
 };
 
-Tier<Op, NextTier>: Box<Term<'input>> = {
-    Tier<Op, NextTier> Op NextTier => Box::new(Term::BinOp(<>)),
+Tier<Op, NextTier>: Term<'input> = {
+    <l:Tier<Op, NextTier>> <op:Op> <r:NextTier> => Term::BinOp(Box::new(l), op, Box::new(r)),
     NextTier,
 };
 
@@ -214,9 +214,9 @@ ExprCall: ExprCall<'input> = {
     <r:Ref> "(" <t:Comma<Term>> ")" => ExprCall::new(r, t),
 };
 
-Term: Box<Term<'input>> = {
-    Ref => Box::new(Term::Ref(<>)),
-    Scalar => Box::new(Term::Scalar(<>)),
+Term: Term<'input> = {
+    Ref => Term::Ref(<>),
+    Scalar => Term::Scalar(<>),
     "(" <Tier0> ")",
 };
 
@@ -245,12 +245,12 @@ EmptySet: Collection<'input> = "set" "(" ")" => Collection::Set(vec![]);
 
 Object: Collection<'input> = "{" <Comma<ObjectItem>> "}" => Collection::Object(<>);
 
-ObjectItem: (Box<Term<'input>>, Box<Term<'input>>) = <k:ObjectKey> ":" <v:Term> => (k, v);
+ObjectItem: (Term<'input>, Term<'input>) = <k:ObjectKey> ":" <v:Term> => (k, v);
 
 #[inline]
-ObjectKey: Box<Term<'input>> = {
-    Scalar => Box::new(Term::Scalar(<>)),
-    Ref => Box::new(Term::Ref(<>)),
+ObjectKey: Term<'input> = {
+    Scalar => Term::Scalar(<>),
+    Ref => Term::Ref(<>),
 };
 
 Var: &'input str = "id";
