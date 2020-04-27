@@ -1,10 +1,11 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::ops::{Add, Div, Mul, Sub};
 
 mod from;
 mod index;
-pub(crate) mod number;
+mod number;
 
 use crate::error::Error;
 
@@ -304,5 +305,151 @@ impl<'a, 'v> fmt::Display for Type<'a, 'v> {
             Value::Object(_) => formatter.write_str("object"),
             Value::Set(_) => formatter.write_str("set"),
         }
+    }
+}
+
+macro_rules! impl_binop {
+    (impl $imp:ident, $method:ident) => {
+        impl<'v> $imp for Value<'v> {
+            type Output = Option<Value<'v>>;
+
+            fn $method(self, other: Self) -> Self::Output {
+                match (self, other) {
+                    (Value::Number(l), Value::Number(r)) => {
+                        Some(Value::Number($imp::$method(l, r)))
+                    }
+                    _ => None,
+                }
+            }
+        }
+
+        impl<'v> $imp<Value<'_>> for &'v Value<'v> {
+            type Output = Option<Value<'v>>;
+
+            fn $method(self, other: Value<'_>) -> Self::Output {
+                match (self, other) {
+                    (Value::Number(ref l), Value::Number(r)) => {
+                        Some(Value::Number($imp::$method(*l, r)))
+                    }
+                    _ => None,
+                }
+            }
+        }
+
+        impl<'v, 'a: 'v> $imp<&Value<'a>> for Value<'v> {
+            type Output = Option<Value<'v>>;
+
+            fn $method(self, other: &Self) -> Self::Output {
+                match (self, other) {
+                    (Value::Number(l), Value::Number(ref r)) => {
+                        Some(Value::Number($imp::$method(l, *r)))
+                    }
+                    _ => None,
+                }
+            }
+        }
+
+        impl<'v, 'a: 'v> $imp<&'a Value<'a>> for &'v Value<'v> {
+            type Output = Option<Value<'v>>;
+
+            fn $method(self, other: Self) -> Self::Output {
+                match (self, other) {
+                    (Value::Number(ref l), Value::Number(ref r)) => {
+                        Some(Value::Number($imp::$method(l, *r)))
+                    }
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
+impl_binop!(impl Add, add);
+impl_binop!(impl Sub, sub);
+impl_binop!(impl Mul, mul);
+impl_binop!(impl Div, div);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn smoketest_addition() {
+        assert_eq!(
+            Some(Value::from(Number::from(3))),
+            Value::from(Number::from(2)) + Value::from(Number::from(1))
+        );
+        assert_eq!(
+            Some(Value::from(Number::from(3))),
+            &Value::from(Number::from(2)) + Value::from(Number::from(1))
+        );
+        assert_eq!(
+            Some(Value::from(Number::from(3))),
+            &Value::from(Number::from(2)) + &Value::from(Number::from(1))
+        );
+        assert_eq!(
+            Some(Value::from(Number::from(3))),
+            Value::from(Number::from(2)) + &Value::from(Number::from(1))
+        );
+    }
+
+    #[test]
+    fn smoketest_subtraction() {
+        assert_eq!(
+            Some(Value::from(Number::from(1))),
+            Value::from(Number::from(2)) - Value::from(Number::from(1))
+        );
+        assert_eq!(
+            Some(Value::from(Number::from(1))),
+            &Value::from(Number::from(2)) - Value::from(Number::from(1))
+        );
+        assert_eq!(
+            Some(Value::from(Number::from(1))),
+            &Value::from(Number::from(2)) - &Value::from(Number::from(1))
+        );
+        assert_eq!(
+            Some(Value::from(Number::from(1))),
+            Value::from(Number::from(2)) - &Value::from(Number::from(1))
+        );
+    }
+
+    #[test]
+    fn smoketest_mul() {
+        assert_eq!(
+            Some(Value::from(Number::from(6))),
+            Value::from(Number::from(2)) * Value::from(Number::from(3))
+        );
+        assert_eq!(
+            Some(Value::from(Number::from(6))),
+            &Value::from(Number::from(2)) * Value::from(Number::from(3))
+        );
+        assert_eq!(
+            Some(Value::from(Number::from(6))),
+            &Value::from(Number::from(2)) * &Value::from(Number::from(3))
+        );
+        assert_eq!(
+            Some(Value::from(Number::from(6))),
+            Value::from(Number::from(2)) * &Value::from(Number::from(3))
+        );
+    }
+
+    #[test]
+    fn smoketest_div() {
+        assert_eq!(
+            Some(Value::from(Number::from(4))),
+            Value::from(Number::from(12)) / Value::from(Number::from(3))
+        );
+        assert_eq!(
+            Some(Value::from(Number::from(4))),
+            &Value::from(Number::from(12)) / Value::from(Number::from(3))
+        );
+        assert_eq!(
+            Some(Value::from(Number::from(4))),
+            &Value::from(Number::from(12)) / &Value::from(Number::from(3))
+        );
+        assert_eq!(
+            Some(Value::from(Number::from(4))),
+            Value::from(Number::from(12)) / &Value::from(Number::from(3))
+        );
     }
 }
