@@ -5,6 +5,7 @@ pub mod ast;
 mod error;
 pub mod parser;
 mod value;
+mod vm;
 
 pub use error::Error;
 pub use value::{Number, Value};
