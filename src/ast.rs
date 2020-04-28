@@ -17,6 +17,7 @@ pub trait Visitor<'input> {
     fn visit_collection(self, target: &Collection<'input>) -> Result<Self::Value, Self::Error>;
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Module<'input> {
     package: Ref<'input>,
     imports: Vec<Import<'input>>,
@@ -37,6 +38,7 @@ impl<'input> Module<'input> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Import<'input> {
     term: Ref<'input>,
     as_term: Option<&'input str>,
@@ -48,6 +50,7 @@ impl<'input> Import<'input> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum Rule<'input> {
     Default(DefaultRule<'input>),
     Complete(CompleteRule<'input>),
@@ -56,6 +59,7 @@ pub enum Rule<'input> {
     Function(FunctionRule<'input>),
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct DefaultRule<'input> {
     name: &'input str,
     term: Term<'input>,
@@ -67,6 +71,7 @@ impl<'input> DefaultRule<'input> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct CompleteRule<'input> {
     name: &'input str,
     value: Option<Term<'input>>,
@@ -83,6 +88,7 @@ impl<'input> CompleteRule<'input> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct SetRule<'input> {
     name: &'input str,
     key: Term<'input>,
@@ -95,6 +101,7 @@ impl<'input> SetRule<'input> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct ObjectRule<'input> {
     name: &'input str,
     key: Term<'input>,
@@ -118,6 +125,7 @@ impl<'input> ObjectRule<'input> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct FunctionRule<'input> {
     name: &'input str,
     args: Vec<Term<'input>>,
@@ -141,6 +149,7 @@ impl<'input> FunctionRule<'input> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct RuleBody<'input> {
     head: Query<'input>,
     tail: Vec<RuleBodyTail<'input>>,
@@ -152,6 +161,7 @@ impl<'input> RuleBody<'input> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct RuleBodyTail<'input> {
     else_clause: Option<ElseClause<'input>>,
     query: Query<'input>,
@@ -163,6 +173,7 @@ impl<'input> RuleBodyTail<'input> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct ElseClause<'input> {
     term: Option<Term<'input>>,
 }
@@ -263,9 +274,9 @@ pub enum RefTarget<'input> {
     Var(&'input str),
     Collection(Collection<'input>),
     ExprCall(ExprCall<'input>),
-    ArrayCompr,
-    SetCompr,
-    ObjectCompr,
+    ArrayCompr(ArrayCompr<'input>),
+    SetCompr(SetCompr<'input>),
+    ObjectCompr(ObjectCompr<'input>),
 }
 
 impl<'input> RefTarget<'input> {
@@ -319,6 +330,42 @@ impl<'input> Collection<'input> {
         V: Visitor<'input>,
     {
         visitor.visit_collection(self)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArrayCompr<'input> {
+    term: Term<'input>,
+    body: Query<'input>,
+}
+
+impl<'input> ArrayCompr<'input> {
+    pub fn new(term: Term<'input>, body: Query<'input>) -> Self {
+        Self { term, body }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetCompr<'input> {
+    term: Term<'input>,
+    body: Query<'input>,
+}
+
+impl<'input> SetCompr<'input> {
+    pub fn new(term: Term<'input>, body: Query<'input>) -> Self {
+        Self { term, body }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObjectCompr<'input> {
+    item: (Term<'input>, Term<'input>),
+    body: Query<'input>,
+}
+
+impl<'input> ObjectCompr<'input> {
+    pub fn new(item: (Term<'input>, Term<'input>), body: Query<'input>) -> Self {
+        Self { item, body }
     }
 }
 

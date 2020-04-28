@@ -173,11 +173,11 @@ Ref: Ref<'input> = {
 RefTarget: RefTarget<'input> = {
     Var => RefTarget::Var(<>),
     Array => RefTarget::Collection(<>),
-    ArrayCompr => RefTarget::ArrayCompr,
+    ArrayCompr => RefTarget::ArrayCompr(<>),
     Object => RefTarget::Collection(<>),
-    ObjectCompr => RefTarget::ObjectCompr,
+    ObjectCompr => RefTarget::ObjectCompr(<>),
     Set => RefTarget::Collection(<>),
-    SetCompr => RefTarget::SetCompr,
+    SetCompr => RefTarget::SetCompr(<>),
     ExprCall => RefTarget::ExprCall(<>),
 };
 
@@ -220,11 +220,11 @@ Term: Term<'input> = {
     "(" <Tier0> ")",
 };
 
-ArrayCompr: () = "[" Term  "|" Query "]";
+ArrayCompr: ArrayCompr<'input> = "[" <Term>  "|" <Query> "]" => ArrayCompr::new(<>);
 
-SetCompr: () = "{" Term "|" Query "}";
+SetCompr: SetCompr<'input> = "{" <Term> "|" <Query> "}" => SetCompr::new(<>);
 
-ObjectCompr: () = "{" ObjectItem "|" Query "}";
+ObjectCompr: ObjectCompr<'input> = "{" <ObjectItem> "|" <Query> "}" => ObjectCompr::new(<>);
 
 Array: Collection<'input> = "["  <Comma<Term>> "]" => Collection::Array(<>);
 
