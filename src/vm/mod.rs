@@ -29,7 +29,7 @@ impl Op {
 #[derive(Debug, Clone, PartialEq)]
 enum Instruction<'a> {
     Noop,
-    Literal(Value<'a>),
+    Const(Value<'a>),
     Op(Op),
     Terminate,
 }
@@ -68,7 +68,7 @@ impl<'a> Instance<'a> {
         while pc < self.instructions.len() {
             match self.instructions[pc] {
                 Noop => (),
-                Literal(ref v) => self.value_stack.push(Operand::from_ref(v)),
+                Const(ref v) => self.value_stack.push(Operand::from_ref(v)),
                 Op(op) => {
                     let left = self.value_stack.pop();
                     let right = self.value_stack.pop();
@@ -84,7 +84,7 @@ impl<'a> Instance<'a> {
             }
             pc += 1
         }
-        Ok(self.value_stack.pop().and_then(|o| o.into_value()))
+        Ok(self.value_stack.pop().map(|o| o.into_value()))
     }
 }
 
@@ -111,7 +111,7 @@ impl<'input> Visitor<'input> for &mut Compiler<'input> {
                 right.accept(&mut *self)?;
                 op.accept(&mut *self)?;
             }
-            Term::Scalar(value) => self.instructions.push(Instruction::Literal(value)),
+            Term::Scalar(value) => self.instructions.push(Instruction::Const(value)),
             _ => todo!(),
         }
         Ok(())
@@ -138,8 +138,8 @@ mod tests {
     #[test]
     fn eval() {
         let instructions = vec![
-            Instruction::Literal(Value::Number(3.into())),
-            Instruction::Literal(Value::Number(4.into())),
+            Instruction::Const(Value::Number(3.into())),
+            Instruction::Const(Value::Number(4.into())),
             Instruction::Op(Op::Add),
         ];
 

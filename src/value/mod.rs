@@ -17,6 +17,7 @@ pub type Set<V> = BTreeSet<V>;
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Value<'a> {
+    Undefined,
     Null,
     Bool(bool),
     Number(Number),
@@ -29,6 +30,7 @@ pub enum Value<'a> {
 impl<'a> fmt::Debug for Value<'a> {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         match *self {
+            Value::Undefined => formatter.debug_tuple("Undefined").finish(),
             Value::Null => formatter.debug_tuple("Null").finish(),
             Value::Bool(v) => formatter.debug_tuple("Bool").field(&v).finish(),
             Value::Number(ref v) => fmt::Debug::fmt(v, formatter),
@@ -43,6 +45,7 @@ impl<'a> fmt::Debug for Value<'a> {
 impl<'a> fmt::Display for Value<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
+            Value::Undefined => write!(f, "undefined"),
             Value::Null => write!(f, "null"),
             Value::Bool(ref v) => fmt::Display::fmt(v, f),
             Value::Number(ref v) => fmt::Display::fmt(v, f),
@@ -93,7 +96,7 @@ impl<'a> fmt::Display for Value<'a> {
 
 impl<'a> Default for Value<'a> {
     fn default() -> Value<'a> {
-        Value::Null
+        Value::Undefined
     }
 }
 
@@ -104,6 +107,10 @@ impl<'a> Value<'a> {
 
     pub fn get_mut<I: Index>(&mut self, index: I) -> Option<&mut Value<'a>> {
         index.index_into_mut(self)
+    }
+
+    pub fn is_defined(&self) -> bool {
+        !matches!(self, Value::Undefined)
     }
 
     pub fn try_into_set(self) -> Result<Set<Value<'a>>, Error> {
@@ -283,6 +290,7 @@ struct Type<'a, 'v>(&'a Value<'v>);
 impl<'a, 'v> Type<'a, 'v> {
     pub fn ty(&self) -> &'static str {
         match *self.0 {
+            Value::Undefined => "undefined",
             Value::Null => "null",
             Value::Bool(_) => "bool",
             Value::Number(_) => "number",
@@ -297,6 +305,7 @@ impl<'a, 'v> Type<'a, 'v> {
 impl<'a, 'v> fmt::Display for Type<'a, 'v> {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         match *self.0 {
+            Value::Undefined => formatter.write_str("undefined"),
             Value::Null => formatter.write_str("null"),
             Value::Bool(_) => formatter.write_str("bool"),
             Value::Number(_) => formatter.write_str("number"),
@@ -311,53 +320,47 @@ impl<'a, 'v> fmt::Display for Type<'a, 'v> {
 macro_rules! impl_binop {
     (impl $imp:ident, $method:ident) => {
         impl<'v> $imp for Value<'v> {
-            type Output = Option<Value<'static>>;
+            type Output = Value<'static>;
 
             fn $method(self, other: Self) -> Self::Output {
                 match (self, other) {
-                    (Value::Number(l), Value::Number(r)) => {
-                        Some(Value::Number($imp::$method(l, r)))
-                    }
-                    _ => None,
+                    (Value::Number(l), Value::Number(r)) => Value::Number($imp::$method(l, r)),
+                    _ => Value::Undefined,
                 }
             }
         }
 
         impl<'v> $imp<Value<'_>> for &'v Value<'v> {
-            type Output = Option<Value<'static>>;
+            type Output = Value<'static>;
 
             fn $method(self, other: Value<'_>) -> Self::Output {
                 match (self, other) {
-                    (Value::Number(ref l), Value::Number(r)) => {
-                        Some(Value::Number($imp::$method(*l, r)))
-                    }
-                    _ => None,
+                    (Value::Number(ref l), Value::Number(r)) => Value::Number($imp::$method(*l, r)),
+                    _ => Value::Undefined,
                 }
             }
         }
 
         impl<'v, 'a: 'v> $imp<&Value<'a>> for Value<'v> {
-            type Output = Option<Value<'static>>;
+            type Output = Value<'static>;
 
             fn $method(self, other: &Self) -> Self::Output {
                 match (self, other) {
-                    (Value::Number(l), Value::Number(ref r)) => {
-                        Some(Value::Number($imp::$method(l, *r)))
-                    }
-                    _ => None,
+                    (Value::Number(l), Value::Number(ref r)) => Value::Number($imp::$method(l, *r)),
+                    _ => Value::Undefined,
                 }
             }
         }
 
         impl<'v, 'a: 'v> $imp<&'a Value<'a>> for &'v Value<'v> {
-            type Output = Option<Value<'static>>;
+            type Output = Value<'static>;
 
             fn $method(self, other: Self) -> Self::Output {
                 match (self, other) {
                     (Value::Number(ref l), Value::Number(ref r)) => {
-                        Some(Value::Number($imp::$method(l, *r)))
+                        Value::Number($imp::$method(l, *r))
                     }
-                    _ => None,
+                    _ => Value::Undefined,
                 }
             }
         }
@@ -376,19 +379,19 @@ mod tests {
     #[test]
     fn smoketest_addition() {
         assert_eq!(
-            Some(Value::from(Number::from(3))),
+            Value::from(Number::from(3)),
             Value::from(Number::from(2)) + Value::from(Number::from(1))
         );
         assert_eq!(
-            Some(Value::from(Number::from(3))),
+            Value::from(Number::from(3)),
             &Value::from(Number::from(2)) + Value::from(Number::from(1))
         );
         assert_eq!(
-            Some(Value::from(Number::from(3))),
+            Value::from(Number::from(3)),
             &Value::from(Number::from(2)) + &Value::from(Number::from(1))
         );
         assert_eq!(
-            Some(Value::from(Number::from(3))),
+            Value::from(Number::from(3)),
             Value::from(Number::from(2)) + &Value::from(Number::from(1))
         );
     }
@@ -396,19 +399,19 @@ mod tests {
     #[test]
     fn smoketest_subtraction() {
         assert_eq!(
-            Some(Value::from(Number::from(1))),
+            Value::from(Number::from(1)),
             Value::from(Number::from(2)) - Value::from(Number::from(1))
         );
         assert_eq!(
-            Some(Value::from(Number::from(1))),
+            Value::from(Number::from(1)),
             &Value::from(Number::from(2)) - Value::from(Number::from(1))
         );
         assert_eq!(
-            Some(Value::from(Number::from(1))),
+            Value::from(Number::from(1)),
             &Value::from(Number::from(2)) - &Value::from(Number::from(1))
         );
         assert_eq!(
-            Some(Value::from(Number::from(1))),
+            Value::from(Number::from(1)),
             Value::from(Number::from(2)) - &Value::from(Number::from(1))
         );
     }
@@ -416,19 +419,19 @@ mod tests {
     #[test]
     fn smoketest_mul() {
         assert_eq!(
-            Some(Value::from(Number::from(6))),
+            Value::from(Number::from(6)),
             Value::from(Number::from(2)) * Value::from(Number::from(3))
         );
         assert_eq!(
-            Some(Value::from(Number::from(6))),
+            Value::from(Number::from(6)),
             &Value::from(Number::from(2)) * Value::from(Number::from(3))
         );
         assert_eq!(
-            Some(Value::from(Number::from(6))),
+            Value::from(Number::from(6)),
             &Value::from(Number::from(2)) * &Value::from(Number::from(3))
         );
         assert_eq!(
-            Some(Value::from(Number::from(6))),
+            Value::from(Number::from(6)),
             Value::from(Number::from(2)) * &Value::from(Number::from(3))
         );
     }
@@ -436,19 +439,19 @@ mod tests {
     #[test]
     fn smoketest_div() {
         assert_eq!(
-            Some(Value::from(Number::from(4))),
+            Value::from(Number::from(4)),
             Value::from(Number::from(12)) / Value::from(Number::from(3))
         );
         assert_eq!(
-            Some(Value::from(Number::from(4))),
+            Value::from(Number::from(4)),
             &Value::from(Number::from(12)) / Value::from(Number::from(3))
         );
         assert_eq!(
-            Some(Value::from(Number::from(4))),
+            Value::from(Number::from(4)),
             &Value::from(Number::from(12)) / &Value::from(Number::from(3))
         );
         assert_eq!(
-            Some(Value::from(Number::from(4))),
+            Value::from(Number::from(4)),
             Value::from(Number::from(12)) / &Value::from(Number::from(3))
         );
     }

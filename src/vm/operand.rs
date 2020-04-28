@@ -1,26 +1,32 @@
-use std::borrow::{Borrow, Cow};
-use std::ops::{Add, Deref, Div, Mul, Sub};
+use std::borrow::Cow;
+use std::ops::{Add, Div, Mul, Sub};
 
 use crate::value::Value;
 
 #[derive(Debug, PartialEq)]
-pub struct Operand<'a>(Option<Cow<'a, Value<'a>>>);
+pub struct Operand<'a>(Cow<'a, Value<'a>>);
 
 impl<'a> Operand<'a> {
     pub fn undefined() -> Self {
-        Operand(None)
+        Operand(Cow::Owned(Value::Undefined))
     }
 
     pub fn from_ref<'v: 'a>(value: &'v Value<'v>) -> Self {
-        Operand(Some(Cow::Borrowed(value)))
+        Operand(Cow::Borrowed(value))
     }
 
     pub fn from_owned(value: Value<'a>) -> Self {
-        Operand(Some(Cow::Owned(value)))
+        Operand(Cow::Owned(value))
     }
 
-    pub fn into_value(self) -> Option<Value<'a>> {
-        self.0.map(|v| v.into_owned())
+    pub fn into_value(self) -> Value<'a> {
+        self.0.into_owned()
+    }
+}
+
+impl<'a> AsRef<Value<'a>> for Operand<'a> {
+    fn as_ref(&self) -> &Value<'a> {
+        self.0.as_ref()
     }
 }
 
@@ -30,12 +36,7 @@ macro_rules! impl_binop {
             type Output = Operand<'v>;
 
             fn $method(self, other: Self) -> Self::Output {
-                match (self.0, other.0) {
-                    (Some(left), Some(right)) => {
-                        Operand($imp::$method(left.as_ref(), right.as_ref()).map(Cow::Owned))
-                    }
-                    _ => Operand::undefined(),
-                }
+                Operand::from_owned($imp::$method(self.0.as_ref(), other.0.as_ref()))
             }
         }
     };
