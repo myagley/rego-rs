@@ -138,20 +138,20 @@ impl<'input> Visitor<'input> for &mut Compiler<'input> {
     type Value = ();
     type Error = Error;
 
-    fn visit_term(self, term: Term<'input>) -> Result<Self::Value, Self::Error> {
+    fn visit_term(self, term: &Term<'input>) -> Result<Self::Value, Self::Error> {
         match term {
             Term::BinOp(left, op, right) => {
                 left.accept(&mut *self)?;
                 right.accept(&mut *self)?;
                 op.accept(&mut *self)?;
             }
-            Term::Scalar(value) => self.instructions.push(Instruction::Const(value)),
+            Term::Scalar(value) => self.instructions.push(Instruction::Const(value.clone())),
             _ => todo!(),
         }
         Ok(())
     }
 
-    fn visit_opcode(self, opcode: Opcode) -> Result<Self::Value, Self::Error> {
+    fn visit_opcode(self, opcode: &Opcode) -> Result<Self::Value, Self::Error> {
         match opcode {
             Opcode::Add => self.instructions.push(Instruction::BinOp(BinOp::Add)),
             Opcode::Sub => self.instructions.push(Instruction::BinOp(BinOp::Sub)),

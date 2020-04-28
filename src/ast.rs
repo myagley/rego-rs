@@ -4,9 +4,9 @@ pub trait Visitor<'input> {
     type Value;
     type Error;
 
-    fn visit_term(self, term: Term<'input>) -> Result<Self::Value, Self::Error>;
+    fn visit_term(self, term: &Term<'input>) -> Result<Self::Value, Self::Error>;
 
-    fn visit_opcode(self, opcode: Opcode) -> Result<Self::Value, Self::Error>;
+    fn visit_opcode(self, opcode: &Opcode) -> Result<Self::Value, Self::Error>;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -59,7 +59,7 @@ pub enum Term<'input> {
 }
 
 impl<'input> Term<'input> {
-    pub fn accept<V>(self, visitor: V) -> Result<V::Value, V::Error>
+    pub fn accept<V>(&self, visitor: V) -> Result<V::Value, V::Error>
     where
         V: Visitor<'input>,
     {
@@ -135,7 +135,7 @@ pub enum Opcode {
 }
 
 impl Opcode {
-    pub fn accept<'input, V>(self, visitor: V) -> Result<V::Value, V::Error>
+    pub fn accept<'input, V>(&self, visitor: V) -> Result<V::Value, V::Error>
     where
         V: Visitor<'input>,
     {
