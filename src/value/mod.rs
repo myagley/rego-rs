@@ -109,6 +109,16 @@ impl<'a> Value<'a> {
         index.index_into_mut(self)
     }
 
+    pub fn push(&mut self, value: Value<'a>) {
+        match self {
+            Value::Array(ref mut a) => a.push(value),
+            Value::Set(ref mut s) => {
+                s.insert(value);
+            }
+            _ => (),
+        }
+    }
+
     pub fn is_defined(&self) -> bool {
         !matches!(self, Value::Undefined)
     }

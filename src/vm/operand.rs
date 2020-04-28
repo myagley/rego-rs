@@ -30,6 +30,12 @@ impl<'a> AsRef<Value<'a>> for Operand<'a> {
     }
 }
 
+impl<'a> AsMut<Value<'a>> for Operand<'a> {
+    fn as_mut(&mut self) -> &mut Value<'a> {
+        self.0.to_mut()
+    }
+}
+
 macro_rules! impl_binop {
     (impl $imp:ident, $method:ident) => {
         impl<'v, 'a: 'v> $imp for Operand<'v> {

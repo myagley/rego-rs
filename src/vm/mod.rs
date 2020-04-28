@@ -1,8 +1,8 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::ast::{Opcode, Term, Visitor};
-use crate::value::Value;
+use crate::ast::*;
+use crate::value::{Set, Value};
 
 mod operand;
 
@@ -44,6 +44,7 @@ enum Instruction<'a> {
     Noop,
     Const(Value<'a>),
     BinOp(BinOp),
+    AppendValue,
     Terminate,
 }
 
@@ -114,6 +115,18 @@ impl<'a> Instance<'a> {
                         _ => return Err(Error::InvalidNumArgs(2, len)),
                     }
                 }
+                AppendValue => {
+                    let len = self.value_stack.len();
+                    let value = self.value_stack.pop();
+                    let collection = self.value_stack.pop();
+                    match (collection, value) {
+                        (Some(mut collection), Some(value)) => {
+                            collection.as_mut().push(value.into_value());
+                            self.value_stack.push(collection);
+                        }
+                        _ => return Err(Error::InvalidNumArgs(2, len)),
+                    }
+                }
                 Terminate => break,
             }
             pc += 1
@@ -146,7 +159,7 @@ impl<'input> Visitor<'input> for &mut Compiler<'input> {
                 op.accept(&mut *self)?;
             }
             Term::Scalar(value) => self.instructions.push(Instruction::Const(value.clone())),
-            _ => todo!(),
+            Term::Ref(r) => r.accept(&mut *self)?,
         }
         Ok(())
     }
@@ -163,6 +176,49 @@ impl<'input> Visitor<'input> for &mut Compiler<'input> {
             Opcode::Gte => self.instructions.push(Instruction::BinOp(BinOp::Gte)),
             Opcode::EqEq => self.instructions.push(Instruction::BinOp(BinOp::EqEq)),
             Opcode::Ne => self.instructions.push(Instruction::BinOp(BinOp::Ne)),
+            _ => todo!(),
+        }
+        Ok(())
+    }
+
+    fn visit_ref(self, r: &Ref<'input>) -> Result<Self::Value, Self::Error> {
+        r.target().accept(&mut *self)?;
+        for arg in r.args() {
+            arg.accept(&mut *self)?;
+        }
+        Ok(())
+    }
+
+    fn visit_ref_target(self, target: &RefTarget<'input>) -> Result<Self::Value, Self::Error> {
+        match target {
+            RefTarget::Collection(c) => c.accept(&mut *self)?,
+            _ => todo!(),
+        }
+        Ok(())
+    }
+
+    fn visit_ref_arg(self, arg: &RefArg<'input>) -> Result<Self::Value, Self::Error> {
+        Ok(())
+    }
+
+    fn visit_collection(self, collection: &Collection<'input>) -> Result<Self::Value, Self::Error> {
+        match collection {
+            Collection::Array(array) => {
+                self.instructions
+                    .push(Instruction::Const(Value::Array(vec![])));
+                for term in array {
+                    term.accept(&mut *self)?;
+                    self.instructions.push(Instruction::AppendValue);
+                }
+            }
+            Collection::Set(set) => {
+                self.instructions
+                    .push(Instruction::Const(Value::Set(Set::new())));
+                for term in set {
+                    term.accept(&mut *self)?;
+                    self.instructions.push(Instruction::AppendValue);
+                }
+            }
             _ => todo!(),
         }
         Ok(())
@@ -205,5 +261,49 @@ mod tests {
         let mut instance = machine.instance();
         let result = instance.eval();
         println!("result: {:?}", result);
+    }
+
+    #[test]
+    fn test_array() {
+        let input = "[[3, 2], 2, 3]";
+        let term = parse_expr(&input).unwrap();
+        let mut compiler = Compiler::new();
+        term.accept(&mut compiler).unwrap();
+
+        let Compiler { instructions } = compiler;
+        let machine = Machine {
+            instructions: Arc::new(instructions),
+        };
+        let mut instance = machine.instance();
+        let result = instance.eval().unwrap().unwrap().try_into_array().unwrap();
+        let expected: Vec<Value<'_>> = vec![
+            Value::Array(vec![Value::Number(3.into()), Value::Number(2.into())]),
+            2.into(),
+            3.into(),
+        ];
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn test_set() {
+        let input = "{[3, 2], 2, 3}";
+        let term = parse_expr(&input).unwrap();
+        let mut compiler = Compiler::new();
+        term.accept(&mut compiler).unwrap();
+
+        let Compiler { instructions } = compiler;
+        let machine = Machine {
+            instructions: Arc::new(instructions),
+        };
+        let mut instance = machine.instance();
+        let result = instance.eval().unwrap().unwrap().try_into_set().unwrap();
+        let mut expected: Set<Value<'_>> = Set::new();
+        expected.insert(Value::Array(vec![
+            Value::Number(3.into()),
+            Value::Number(2.into()),
+        ]));
+        expected.insert(2.into());
+        expected.insert(3.into());
+        assert_eq!(expected, result);
     }
 }

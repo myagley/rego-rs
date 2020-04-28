@@ -7,6 +7,14 @@ pub trait Visitor<'input> {
     fn visit_term(self, term: &Term<'input>) -> Result<Self::Value, Self::Error>;
 
     fn visit_opcode(self, opcode: &Opcode) -> Result<Self::Value, Self::Error>;
+
+    fn visit_ref(self, target: &Ref<'input>) -> Result<Self::Value, Self::Error>;
+
+    fn visit_ref_target(self, target: &RefTarget<'input>) -> Result<Self::Value, Self::Error>;
+
+    fn visit_ref_arg(self, target: &RefArg<'input>) -> Result<Self::Value, Self::Error>;
+
+    fn visit_collection(self, target: &Collection<'input>) -> Result<Self::Value, Self::Error>;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -77,6 +85,21 @@ impl<'input> Ref<'input> {
     pub fn new(target: Box<RefTarget<'input>>, args: Vec<RefArg<'input>>) -> Self {
         Self { target, args }
     }
+
+    pub fn target(&self) -> &RefTarget<'input> {
+        &self.target
+    }
+
+    pub fn args(&self) -> &[RefArg<'input>] {
+        &self.args
+    }
+
+    pub fn accept<V>(&self, visitor: V) -> Result<V::Value, V::Error>
+    where
+        V: Visitor<'input>,
+    {
+        visitor.visit_ref(self)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -89,12 +112,30 @@ pub enum RefTarget<'input> {
     ObjectCompr,
 }
 
+impl<'input> RefTarget<'input> {
+    pub fn accept<V>(&self, visitor: V) -> Result<V::Value, V::Error>
+    where
+        V: Visitor<'input>,
+    {
+        visitor.visit_ref_target(self)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum RefArg<'input> {
     Collection(Collection<'input>),
     Var(&'input str),
     Scalar(Value<'input>),
     Anon,
+}
+
+impl<'input> RefArg<'input> {
+    pub fn accept<V>(&self, visitor: V) -> Result<V::Value, V::Error>
+    where
+        V: Visitor<'input>,
+    {
+        visitor.visit_ref_arg(self)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -114,6 +155,15 @@ pub enum Collection<'input> {
     Array(Vec<Term<'input>>),
     Set(Vec<Term<'input>>),
     Object(Vec<(Term<'input>, Term<'input>)>),
+}
+
+impl<'input> Collection<'input> {
+    pub fn accept<V>(&self, visitor: V) -> Result<V::Value, V::Error>
+    where
+        V: Visitor<'input>,
+    {
+        visitor.visit_collection(self)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
