@@ -311,7 +311,7 @@ impl<'a, 'v> fmt::Display for Type<'a, 'v> {
 macro_rules! impl_binop {
     (impl $imp:ident, $method:ident) => {
         impl<'v> $imp for Value<'v> {
-            type Output = Option<Value<'v>>;
+            type Output = Option<Value<'static>>;
 
             fn $method(self, other: Self) -> Self::Output {
                 match (self, other) {
@@ -324,7 +324,7 @@ macro_rules! impl_binop {
         }
 
         impl<'v> $imp<Value<'_>> for &'v Value<'v> {
-            type Output = Option<Value<'v>>;
+            type Output = Option<Value<'static>>;
 
             fn $method(self, other: Value<'_>) -> Self::Output {
                 match (self, other) {
@@ -337,7 +337,7 @@ macro_rules! impl_binop {
         }
 
         impl<'v, 'a: 'v> $imp<&Value<'a>> for Value<'v> {
-            type Output = Option<Value<'v>>;
+            type Output = Option<Value<'static>>;
 
             fn $method(self, other: &Self) -> Self::Output {
                 match (self, other) {
@@ -350,7 +350,7 @@ macro_rules! impl_binop {
         }
 
         impl<'v, 'a: 'v> $imp<&'a Value<'a>> for &'v Value<'v> {
-            type Output = Option<Value<'v>>;
+            type Output = Option<Value<'static>>;
 
             fn $method(self, other: Self) -> Self::Output {
                 match (self, other) {

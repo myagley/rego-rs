@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::ast::{Opcode, Term, Visitor};
 use crate::value::Value;
 
 mod operand;
@@ -58,7 +59,7 @@ pub struct Instance<'m> {
 }
 
 impl<'a> Instance<'a> {
-    pub fn eval(&'a mut self) -> Result<Option<Value<'a>>, Error> {
+    pub fn eval(&'a mut self) -> Result<Option<Value<'_>>, Error> {
         use Instruction::*;
 
         let mut pc = 0;
@@ -87,9 +88,52 @@ impl<'a> Instance<'a> {
     }
 }
 
+pub struct Compiler<'input> {
+    instructions: Vec<Instruction<'input>>,
+}
+
+impl<'input> Compiler<'input> {
+    pub fn new() -> Self {
+        Compiler {
+            instructions: Vec::new(),
+        }
+    }
+}
+
+impl<'input> Visitor<'input> for &mut Compiler<'input> {
+    type Value = ();
+    type Error = Error;
+
+    fn visit_term(self, term: Term<'input>) -> Result<Self::Value, Self::Error> {
+        match term {
+            Term::BinOp(left, op, right) => {
+                left.accept(&mut *self)?;
+                right.accept(&mut *self)?;
+                op.accept(&mut *self)?;
+            }
+            Term::Scalar(value) => self.instructions.push(Instruction::Literal(value)),
+            _ => todo!(),
+        }
+        Ok(())
+    }
+
+    fn visit_opcode(self, opcode: Opcode) -> Result<Self::Value, Self::Error> {
+        match opcode {
+            Opcode::Add => self.instructions.push(Instruction::Op(Op::Add)),
+            Opcode::Sub => self.instructions.push(Instruction::Op(Op::Sub)),
+            Opcode::Mul => self.instructions.push(Instruction::Op(Op::Mul)),
+            Opcode::Div => self.instructions.push(Instruction::Op(Op::Div)),
+            _ => todo!(),
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::parser::parse_expr;
 
     #[test]
     fn eval() {
@@ -99,6 +143,22 @@ mod tests {
             Instruction::Op(Op::Add),
         ];
 
+        let machine = Machine {
+            instructions: Arc::new(instructions),
+        };
+        let mut instance = machine.instance();
+        let result = instance.eval();
+        println!("result: {:?}", result);
+    }
+
+    #[test]
+    fn compile() {
+        let input = "(3 + 4) * 3";
+        let term = parse_expr(&input).unwrap();
+        let mut compiler = Compiler::new();
+        term.accept(&mut compiler).unwrap();
+
+        let Compiler { instructions } = compiler;
         let machine = Machine {
             instructions: Arc::new(instructions),
         };

@@ -5,7 +5,7 @@ pub mod lexer;
 mod token;
 
 use self::lexer::Error as LexerError;
-use crate::ast::Query;
+use crate::ast::{Query, Term};
 use crate::Location;
 
 pub use lexer::Lexer;
@@ -16,6 +16,11 @@ pub type ParseError<'input> = lalrpop_util::ParseError<Location, Token<'input>, 
 pub fn parse_query<'input>(input: &'input str) -> Result<Query<'input>, ParseError<'input>> {
     let lexer = Lexer::new(input);
     grammar::QueryParser::new().parse(input, lexer)
+}
+
+pub fn parse_expr<'input>(input: &'input str) -> Result<Term<'input>, ParseError<'input>> {
+    let lexer = Lexer::new(input);
+    grammar::ExprParser::new().parse(input, lexer)
 }
 
 #[cfg(test)]

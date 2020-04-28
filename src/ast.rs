@@ -1,5 +1,14 @@
 use crate::value::Value;
 
+pub trait Visitor<'input> {
+    type Value;
+    type Error;
+
+    fn visit_term(self, term: Term<'input>) -> Result<Self::Value, Self::Error>;
+
+    fn visit_opcode(self, opcode: Opcode) -> Result<Self::Value, Self::Error>;
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Query<'input> {
     statements: Vec<Statement<'input>>,
@@ -47,6 +56,15 @@ pub enum Term<'input> {
     BinOp(Box<Term<'input>>, Opcode, Box<Term<'input>>),
     Scalar(Value<'input>),
     Ref(Ref<'input>),
+}
+
+impl<'input> Term<'input> {
+    pub fn accept<V>(self, visitor: V) -> Result<V::Value, V::Error>
+    where
+        V: Visitor<'input>,
+    {
+        visitor.visit_term(self)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -114,4 +132,13 @@ pub enum Opcode {
     Ne,
     Eq,
     Assign,
+}
+
+impl Opcode {
+    pub fn accept<'input, V>(self, visitor: V) -> Result<V::Value, V::Error>
+    where
+        V: Visitor<'input>,
+    {
+        visitor.visit_opcode(self)
+    }
 }

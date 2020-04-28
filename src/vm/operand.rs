@@ -26,14 +26,14 @@ impl<'a> Operand<'a> {
 
 macro_rules! impl_binop {
     (impl $imp:ident, $method:ident) => {
-        impl<'v> $imp for Operand<'v> {
+        impl<'v, 'a: 'v> $imp for Operand<'v> {
             type Output = Operand<'v>;
 
             fn $method(self, other: Self) -> Self::Output {
                 match (self.0, other.0) {
-                    (Some(left), Some(right)) => Operand(
-                        $imp::$method(left.into_owned(), right.into_owned()).map(Cow::Owned),
-                    ),
+                    (Some(left), Some(right)) => {
+                        Operand($imp::$method(left.as_ref(), right.as_ref()).map(Cow::Owned))
+                    }
                     _ => Operand::undefined(),
                 }
             }
