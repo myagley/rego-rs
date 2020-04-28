@@ -1,3 +1,4 @@
+use std::fmt;
 use std::sync::Arc;
 
 use crate::ast::{Opcode, Term, Visitor};
@@ -48,7 +49,27 @@ enum Instruction<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    Trap,
+    InvalidNumArgs(usize, usize),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::InvalidNumArgs(expected, got) => write!(
+                f,
+                "invalid number of args for op. expected {}, got {}",
+                expected, got
+            ),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -82,6 +103,7 @@ impl<'a> Instance<'a> {
                 Noop => (),
                 Const(ref v) => self.value_stack.push(Operand::from_ref(v)),
                 Op(op) => {
+                    let len = self.value_stack.len();
                     let right = self.value_stack.pop();
                     let left = self.value_stack.pop();
                     match (left, right) {
@@ -89,7 +111,7 @@ impl<'a> Instance<'a> {
                             let result = op.op(left, right);
                             self.value_stack.push(result);
                         }
-                        _ => return Err(Error::Trap),
+                        _ => return Err(Error::InvalidNumArgs(2, len)),
                     }
                 }
                 Terminate => break,
