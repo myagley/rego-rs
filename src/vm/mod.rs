@@ -9,7 +9,7 @@ mod operand;
 use self::operand::Operand;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Op {
+enum BinOp {
     Add,
     Sub,
     Mul,
@@ -22,19 +22,19 @@ enum Op {
     Ne,
 }
 
-impl Op {
+impl BinOp {
     pub fn op<'a>(&self, left: Operand<'a>, right: Operand<'a>) -> Operand<'a> {
         match self {
-            Op::Add => left + right,
-            Op::Sub => left - right,
-            Op::Mul => left * right,
-            Op::Div => left / right,
-            Op::Lt => Operand::from_owned(left.lt(&right).into()),
-            Op::Lte => Operand::from_owned(left.le(&right).into()),
-            Op::Gt => Operand::from_owned(left.gt(&right).into()),
-            Op::Gte => Operand::from_owned(left.ge(&right).into()),
-            Op::EqEq => Operand::from_owned(left.eq(&right).into()),
-            Op::Ne => Operand::from_owned(left.ne(&right).into()),
+            BinOp::Add => left + right,
+            BinOp::Sub => left - right,
+            BinOp::Mul => left * right,
+            BinOp::Div => left / right,
+            BinOp::Lt => Operand::from_owned(left.lt(&right).into()),
+            BinOp::Lte => Operand::from_owned(left.le(&right).into()),
+            BinOp::Gt => Operand::from_owned(left.gt(&right).into()),
+            BinOp::Gte => Operand::from_owned(left.ge(&right).into()),
+            BinOp::EqEq => Operand::from_owned(left.eq(&right).into()),
+            BinOp::Ne => Operand::from_owned(left.ne(&right).into()),
         }
     }
 }
@@ -43,7 +43,7 @@ impl Op {
 enum Instruction<'a> {
     Noop,
     Const(Value<'a>),
-    Op(Op),
+    BinOp(BinOp),
     Terminate,
 }
 
@@ -102,13 +102,13 @@ impl<'a> Instance<'a> {
             match self.instructions[pc] {
                 Noop => (),
                 Const(ref v) => self.value_stack.push(Operand::from_ref(v)),
-                Op(op) => {
+                BinOp(binop) => {
                     let len = self.value_stack.len();
                     let right = self.value_stack.pop();
                     let left = self.value_stack.pop();
                     match (left, right) {
                         (Some(left), Some(right)) => {
-                            let result = op.op(left, right);
+                            let result = binop.op(left, right);
                             self.value_stack.push(result);
                         }
                         _ => return Err(Error::InvalidNumArgs(2, len)),
@@ -153,16 +153,16 @@ impl<'input> Visitor<'input> for &mut Compiler<'input> {
 
     fn visit_opcode(self, opcode: Opcode) -> Result<Self::Value, Self::Error> {
         match opcode {
-            Opcode::Add => self.instructions.push(Instruction::Op(Op::Add)),
-            Opcode::Sub => self.instructions.push(Instruction::Op(Op::Sub)),
-            Opcode::Mul => self.instructions.push(Instruction::Op(Op::Mul)),
-            Opcode::Div => self.instructions.push(Instruction::Op(Op::Div)),
-            Opcode::Lt => self.instructions.push(Instruction::Op(Op::Lt)),
-            Opcode::Lte => self.instructions.push(Instruction::Op(Op::Lte)),
-            Opcode::Gt => self.instructions.push(Instruction::Op(Op::Gt)),
-            Opcode::Gte => self.instructions.push(Instruction::Op(Op::Gte)),
-            Opcode::EqEq => self.instructions.push(Instruction::Op(Op::EqEq)),
-            Opcode::Ne => self.instructions.push(Instruction::Op(Op::Ne)),
+            Opcode::Add => self.instructions.push(Instruction::BinOp(BinOp::Add)),
+            Opcode::Sub => self.instructions.push(Instruction::BinOp(BinOp::Sub)),
+            Opcode::Mul => self.instructions.push(Instruction::BinOp(BinOp::Mul)),
+            Opcode::Div => self.instructions.push(Instruction::BinOp(BinOp::Div)),
+            Opcode::Lt => self.instructions.push(Instruction::BinOp(BinOp::Lt)),
+            Opcode::Lte => self.instructions.push(Instruction::BinOp(BinOp::Lte)),
+            Opcode::Gt => self.instructions.push(Instruction::BinOp(BinOp::Gt)),
+            Opcode::Gte => self.instructions.push(Instruction::BinOp(BinOp::Gte)),
+            Opcode::EqEq => self.instructions.push(Instruction::BinOp(BinOp::EqEq)),
+            Opcode::Ne => self.instructions.push(Instruction::BinOp(BinOp::Ne)),
             _ => todo!(),
         }
         Ok(())
@@ -180,7 +180,7 @@ mod tests {
         let instructions = vec![
             Instruction::Const(Value::Number(3.into())),
             Instruction::Const(Value::Number(4.into())),
-            Instruction::Op(Op::Add),
+            Instruction::BinOp(BinOp::Add),
         ];
 
         let machine = Machine {
