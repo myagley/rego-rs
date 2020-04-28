@@ -64,6 +64,13 @@ impl From<Number> for Value<'_> {
 
 impl<'a> From<Map<String, Value<'a>>> for Value<'a> {
     fn from(f: Map<String, Value<'a>>) -> Self {
+        let m = f.into_iter().map(|(k, v)| (k.into(), v)).collect();
+        Value::Object(m)
+    }
+}
+
+impl<'a> From<Map<Value<'a>, Value<'a>>> for Value<'a> {
+    fn from(f: Map<Value<'a>, Value<'a>>) -> Self {
         Value::Object(f)
     }
 }

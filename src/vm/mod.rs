@@ -2,7 +2,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::ast::*;
-use crate::value::{Set, Value};
+use crate::value::{Map, Set, Value};
 
 mod operand;
 
@@ -45,6 +45,7 @@ enum Instruction<'a> {
     Const(Value<'a>),
     BinOp(BinOp),
     AppendValue,
+    InsertKeyValue,
     Terminate,
 }
 
@@ -125,6 +126,21 @@ impl<'a> Instance<'a> {
                             self.value_stack.push(collection);
                         }
                         _ => return Err(Error::InvalidNumArgs(2, len)),
+                    }
+                }
+                InsertKeyValue => {
+                    let len = self.value_stack.len();
+                    let value = self.value_stack.pop();
+                    let key = self.value_stack.pop();
+                    let collection = self.value_stack.pop();
+                    match (collection, key, value) {
+                        (Some(mut collection), Some(key), Some(value)) => {
+                            collection
+                                .as_mut()
+                                .insert(key.into_value(), value.into_value());
+                            self.value_stack.push(collection);
+                        }
+                        _ => return Err(Error::InvalidNumArgs(3, len)),
                     }
                 }
                 Terminate => break,
@@ -219,6 +235,15 @@ impl<'input> Visitor<'input> for &mut Compiler<'input> {
                     self.instructions.push(Instruction::AppendValue);
                 }
             }
+            Collection::Object(obj) => {
+                self.instructions
+                    .push(Instruction::Const(Value::Object(Map::new())));
+                for (key, value) in obj {
+                    key.accept(&mut *self)?;
+                    value.accept(&mut *self)?;
+                    self.instructions.push(Instruction::InsertKeyValue);
+                }
+            }
             _ => todo!(),
         }
         Ok(())
@@ -304,6 +329,25 @@ mod tests {
         ]));
         expected.insert(2.into());
         expected.insert(3.into());
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn test_object() {
+        let input = "{\"three\": 3, \"two\": 2}";
+        let term = parse_expr(&input).unwrap();
+        let mut compiler = Compiler::new();
+        term.accept(&mut compiler).unwrap();
+
+        let Compiler { instructions } = compiler;
+        let machine = Machine {
+            instructions: Arc::new(instructions),
+        };
+        let mut instance = machine.instance();
+        let result = instance.eval().unwrap().unwrap().try_into_object().unwrap();
+        let mut expected: Map<Value<'_>, Value<'_>> = Map::new();
+        expected.insert("three".into(), 3.into());
+        expected.insert("two".into(), 2.into());
         assert_eq!(expected, result);
     }
 }

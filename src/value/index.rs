@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::ops;
 
@@ -42,61 +43,61 @@ impl Index for usize {
     }
 }
 
-impl Index for str {
-    fn index_into<'a, 'v: 'a>(&self, v: &'a Value<'v>) -> Option<&'a Value<'v>> {
-        match *v {
-            Value::Object(ref map) => map.get(self),
-            _ => None,
-        }
-    }
-
-    fn index_into_mut<'a, 'v: 'a>(&self, v: &'a mut Value<'v>) -> Option<&'a mut Value<'v>> {
-        match v {
-            Value::Object(ref mut map) => map.get_mut(self),
-            _ => None,
-        }
-    }
-
-    fn index_or_insert<'a, 'v: 'a>(&self, v: &'a mut Value<'v>) -> &'a mut Value<'v> {
-        if let Value::Null = *v {
-            *v = Value::Object(BTreeMap::new());
-        }
-        match v {
-            Value::Object(ref mut map) => map.entry(self.to_owned()).or_insert(Value::Null),
-            _ => panic!("cannot access key {:?} in value {}", self, Type(v)),
-        }
-    }
-}
-
-impl Index for String {
-    fn index_into<'a, 'v: 'a>(&self, v: &'a Value<'v>) -> Option<&'a Value<'v>> {
-        self[..].index_into(v)
-    }
-
-    fn index_into_mut<'a, 'v: 'a>(&self, v: &'a mut Value<'v>) -> Option<&'a mut Value<'v>> {
-        self[..].index_into_mut(v)
-    }
-
-    fn index_or_insert<'a, 'v: 'a>(&self, v: &'a mut Value<'v>) -> &'a mut Value<'v> {
-        self[..].index_or_insert(v)
-    }
-}
-
-impl<'b, T: ?Sized> Index for &'b T
-where
-    T: Index,
-{
-    fn index_into<'a, 'v: 'a>(&self, v: &'a Value<'v>) -> Option<&'a Value<'v>> {
-        (**self).index_into(v)
-    }
-    fn index_into_mut<'a, 'v: 'a>(&self, v: &'a mut Value<'v>) -> Option<&'a mut Value<'v>> {
-        (**self).index_into_mut(v)
-    }
-    fn index_or_insert<'a, 'v: 'a>(&self, v: &'a mut Value<'v>) -> &'a mut Value<'v> {
-        (**self).index_or_insert(v)
-    }
-}
-
+// impl Index for str {
+//     fn index_into<'a, 'v: 'a>(&self, v: &'a Value<'v>) -> Option<&'a Value<'v>> {
+//         match *v {
+//             Value::Object(ref map) => map.get(&Value::String(Cow::Borrowed(self))),
+//             _ => None,
+//         }
+//     }
+//
+//     fn index_into_mut<'a, 'v: 'a>(&self, v: &'a mut Value<'v>) -> Option<&'a mut Value<'v>> {
+//         match v {
+//             Value::Object(ref mut map) => map.get_mut(self),
+//             _ => None,
+//         }
+//     }
+//
+//     fn index_or_insert<'a, 'v: 'a>(&self, v: &'a mut Value<'v>) -> &'a mut Value<'v> {
+//         if let Value::Null = *v {
+//             *v = Value::Object(BTreeMap::new());
+//         }
+//         match v {
+//             Value::Object(ref mut map) => map.entry(self.to_owned()).or_insert(Value::Null),
+//             _ => panic!("cannot access key {:?} in value {}", self, Type(v)),
+//         }
+//     }
+// }
+//
+// impl Index for String {
+//     fn index_into<'a, 'v: 'a>(&self, v: &'a Value<'v>) -> Option<&'a Value<'v>> {
+//         self[..].index_into(v)
+//     }
+//
+//     fn index_into_mut<'a, 'v: 'a>(&self, v: &'a mut Value<'v>) -> Option<&'a mut Value<'v>> {
+//         self[..].index_into_mut(v)
+//     }
+//
+//     fn index_or_insert<'a, 'v: 'a>(&self, v: &'a mut Value<'v>) -> &'a mut Value<'v> {
+//         self[..].index_or_insert(v)
+//     }
+// }
+//
+// impl<'b, T: ?Sized> Index for &'b T
+// where
+//     T: Index,
+// {
+//     fn index_into<'a, 'v: 'a>(&self, v: &'a Value<'v>) -> Option<&'a Value<'v>> {
+//         (**self).index_into(v)
+//     }
+//     fn index_into_mut<'a, 'v: 'a>(&self, v: &'a mut Value<'v>) -> Option<&'a mut Value<'v>> {
+//         (**self).index_into_mut(v)
+//     }
+//     fn index_or_insert<'a, 'v: 'a>(&self, v: &'a mut Value<'v>) -> &'a mut Value<'v> {
+//         (**self).index_or_insert(v)
+//     }
+// }
+//
 mod private {
     pub trait Sealed {}
     impl Sealed for usize {}

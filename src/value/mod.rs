@@ -23,7 +23,7 @@ pub enum Value<'a> {
     Number(Number),
     String(Cow<'a, str>),
     Array(Vec<Value<'a>>),
-    Object(Map<String, Value<'a>>),
+    Object(Map<Value<'a>, Value<'a>>),
     Set(Set<Value<'a>>),
 }
 
@@ -101,19 +101,28 @@ impl<'a> Default for Value<'a> {
 }
 
 impl<'a> Value<'a> {
-    pub fn get<I: Index>(&self, index: I) -> Option<&Value<'a>> {
-        index.index_into(self)
-    }
-
-    pub fn get_mut<I: Index>(&mut self, index: I) -> Option<&mut Value<'a>> {
-        index.index_into_mut(self)
-    }
-
+    // pub fn get<I: Index>(&self, index: I) -> Option<&Value<'a>> {
+    //     index.index_into(self)
+    // }
+    //
+    // pub fn get_mut<I: Index>(&mut self, index: I) -> Option<&mut Value<'a>> {
+    //     index.index_into_mut(self)
+    // }
+    //
     pub fn push(&mut self, value: Value<'a>) {
         match self {
             Value::Array(ref mut a) => a.push(value),
             Value::Set(ref mut s) => {
                 s.insert(value);
+            }
+            _ => (),
+        }
+    }
+
+    pub fn insert(&mut self, key: Value<'a>, value: Value<'a>) {
+        match self {
+            Value::Object(ref mut o) => {
+                o.insert(key, value);
             }
             _ => (),
         }
@@ -148,21 +157,21 @@ impl<'a> Value<'a> {
         self.as_set().is_some()
     }
 
-    pub fn try_into_object(self) -> Result<Map<String, Value<'a>>, Error> {
+    pub fn try_into_object(self) -> Result<Map<Value<'a>, Value<'a>>, Error> {
         match self {
             Value::Object(map) => Ok(map),
             v => Err(Error::InvalidType("object", Type(&v).ty())),
         }
     }
 
-    pub fn as_object(&self) -> Option<&Map<String, Value<'a>>> {
+    pub fn as_object(&self) -> Option<&Map<Value<'a>, Value<'a>>> {
         match *self {
             Value::Object(ref map) => Some(map),
             _ => None,
         }
     }
 
-    pub fn as_object_mut(&mut self) -> Option<&mut Map<String, Value<'a>>> {
+    pub fn as_object_mut(&mut self) -> Option<&mut Map<Value<'a>, Value<'a>>> {
         match *self {
             Value::Object(ref mut map) => Some(map),
             _ => None,
