@@ -5,13 +5,18 @@ pub mod lexer;
 mod token;
 
 use self::lexer::Error as LexerError;
-use crate::ast::{Query, Term};
+use crate::ast::{Module, Query, Term};
 use crate::Location;
 
 pub use lexer::Lexer;
 pub use token::Token;
 
 pub type ParseError<'input> = lalrpop_util::ParseError<Location, Token<'input>, LexerError>;
+
+pub fn parse_module<'input>(input: &'input str) -> Result<Module<'input>, ParseError<'input>> {
+    let lexer = Lexer::new(input);
+    grammar::ModuleParser::new().parse(input, lexer)
+}
 
 pub fn parse_query<'input>(input: &'input str) -> Result<Query<'input>, ParseError<'input>> {
     let lexer = Lexer::new(input);
@@ -102,8 +107,7 @@ mod tests {
             "#,
         ];
         for input in &cases {
-            let lexer = Lexer::new(input);
-            if let Err(e) = grammar::QueryParser::new().parse(input, lexer) {
+            if let Err(e) = parse_query(input) {
                 panic!("input: {} {:?}", input, e);
             }
         }
@@ -138,8 +142,7 @@ public_servers[server] {
 }
         "####;
 
-        let lexer = Lexer::new(input);
-        if let Err(e) = grammar::ModuleParser::new().parse(input, lexer) {
+        if let Err(e) = parse_module(input) {
             panic!("{:?}", e);
         }
     }

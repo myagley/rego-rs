@@ -75,30 +75,30 @@ Comma<T>: Vec<T> = {
     }
 };
 
-pub Module: () = Package Import* Policy;
+pub Module: Module<'input> = Package Import* Rule* => Module::new(<>);
 
-Import: () = "import" Ref ("as" Var)? ";"+;
+Import: Import<'input> = "import" <Ref> <("as" <Var>)?> ";"+ => Import::new(<>);
 
-Package: () = "package" Ref ";"+;
+Package: Ref<'input> = "package" <Ref> ";"+;
 
-Policy: () = Rule*;
-
-Rule: () = {
-    "default" Var "=" Term ";"+,
-    Var ( AssignOrEqual Term )? RuleBody* ";"+,
-    Var "[" Term "]" RuleBody* ";"+,
-    Var "[" Term "]" "=" Term RuleBody* ";"+,
-    Var "(" Comma<Term> ")" "=" Term RuleBody* ";"+,
+Rule: Rule<'input> = {
+    "default" <Var> "=" <Term> ";"+ => Rule::Default(DefaultRule::new(<>)),
+    <Var> <( ExprOp <Term> )?> <RuleBody?> ";"+ => Rule::Complete(CompleteRule::new(<>)),
+    <Var> "[" <Term> "]" <RuleBody?> ";"+ => Rule::Set(SetRule::new(<>)),
+    <Var> "[" <Term> "]" "=" <Term> <RuleBody?> ";"+ => Rule::Object(ObjectRule::new(<>)),
+    <Var> "(" <Comma<Term>> ")" "=" <Term> <RuleBody?> ";"+ => Rule::Function(FunctionRule::new(<>)),
 };
 
-#[inline]
-AssignOrEqual: Opcode = {
-    ":=" => Opcode::Assign,
-    "=" => Opcode::Eq,
+RuleBody: RuleBody<'input> = {
+    "{" <Query> "}" <RuleBodyTail*> => RuleBody::new(<>),
 };
 
-RuleBody: () = {
-    ( "else" ( "=" Term)?)? "{" Query "}",
+RuleBodyTail: RuleBodyTail<'input> = {
+    <ElseClause?> "{" <Query> "}" => RuleBodyTail::new(<>),
+};
+
+ElseClause: ElseClause<'input> = {
+    "else" <("=" <Term>)?> => ElseClause::new(<>),
 };
 
 pub Query: Query<'input> = {
@@ -115,7 +115,6 @@ Statement: Statement<'input>  = {
     <StatementTarget> <WithModifier*> => Statement::new(<>),
 }
 
-#[inline]
 StatementTarget: StatementTarget<'input> = {
     Expr => StatementTarget::Expr(<>),
     "not" <Expr> => StatementTarget::NotExpr(<>),
@@ -126,20 +125,21 @@ WithModifier: With<'input> = {
     "with" <Term> "as" <Term> => With::new(<>),
 };
 
-pub Expr: Term<'input> = {
-    <l:Term> <op:AssignOrEqual> <r:Tier0> => Term::BinOp(Box::new(l), op, Box::new(r)),
-    Tier0,
-};
-
 Tier<Op, NextTier>: Term<'input> = {
     <l:Tier<Op, NextTier>> <op:Op> <r:NextTier> => Term::BinOp(Box::new(l), op, Box::new(r)),
     NextTier,
 };
 
+pub Expr = Tier<ExprOp, Tier0>;
 Tier0 = Tier<Tier0Op, Tier1>;
 Tier1 = Tier<Tier1Op, Tier2>;
 Tier2 = Tier<Tier2Op, Tier3>;
 Tier3 = Tier<Tier3Op, Term>;
+
+ExprOp: Opcode = {
+    ":=" => Opcode::Assign,
+    "=" => Opcode::Eq,
+}
 
 Tier3Op: Opcode = {
     "*" => Opcode::Mul,

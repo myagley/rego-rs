@@ -17,6 +17,162 @@ pub trait Visitor<'input> {
     fn visit_collection(self, target: &Collection<'input>) -> Result<Self::Value, Self::Error>;
 }
 
+pub struct Module<'input> {
+    package: Ref<'input>,
+    imports: Vec<Import<'input>>,
+    rules: Vec<Rule<'input>>,
+}
+
+impl<'input> Module<'input> {
+    pub fn new(
+        package: Ref<'input>,
+        imports: Vec<Import<'input>>,
+        rules: Vec<Rule<'input>>,
+    ) -> Self {
+        Self {
+            package,
+            imports,
+            rules,
+        }
+    }
+}
+
+pub struct Import<'input> {
+    term: Ref<'input>,
+    as_term: Option<&'input str>,
+}
+
+impl<'input> Import<'input> {
+    pub fn new(term: Ref<'input>, as_term: Option<&'input str>) -> Self {
+        Self { term, as_term }
+    }
+}
+
+pub enum Rule<'input> {
+    Default(DefaultRule<'input>),
+    Complete(CompleteRule<'input>),
+    Set(SetRule<'input>),
+    Object(ObjectRule<'input>),
+    Function(FunctionRule<'input>),
+}
+
+pub struct DefaultRule<'input> {
+    name: &'input str,
+    term: Term<'input>,
+}
+
+impl<'input> DefaultRule<'input> {
+    pub fn new(name: &'input str, term: Term<'input>) -> Self {
+        Self { name, term }
+    }
+}
+
+pub struct CompleteRule<'input> {
+    name: &'input str,
+    value: Option<Term<'input>>,
+    body: Option<RuleBody<'input>>,
+}
+
+impl<'input> CompleteRule<'input> {
+    pub fn new(
+        name: &'input str,
+        value: Option<Term<'input>>,
+        body: Option<RuleBody<'input>>,
+    ) -> Self {
+        Self { name, value, body }
+    }
+}
+
+pub struct SetRule<'input> {
+    name: &'input str,
+    key: Term<'input>,
+    body: Option<RuleBody<'input>>,
+}
+
+impl<'input> SetRule<'input> {
+    pub fn new(name: &'input str, key: Term<'input>, body: Option<RuleBody<'input>>) -> Self {
+        Self { name, key, body }
+    }
+}
+
+pub struct ObjectRule<'input> {
+    name: &'input str,
+    key: Term<'input>,
+    value: Term<'input>,
+    body: Option<RuleBody<'input>>,
+}
+
+impl<'input> ObjectRule<'input> {
+    pub fn new(
+        name: &'input str,
+        key: Term<'input>,
+        value: Term<'input>,
+        body: Option<RuleBody<'input>>,
+    ) -> Self {
+        Self {
+            name,
+            key,
+            value,
+            body,
+        }
+    }
+}
+
+pub struct FunctionRule<'input> {
+    name: &'input str,
+    args: Vec<Term<'input>>,
+    value: Term<'input>,
+    body: Option<RuleBody<'input>>,
+}
+
+impl<'input> FunctionRule<'input> {
+    pub fn new(
+        name: &'input str,
+        args: Vec<Term<'input>>,
+        value: Term<'input>,
+        body: Option<RuleBody<'input>>,
+    ) -> Self {
+        Self {
+            name,
+            args,
+            value,
+            body,
+        }
+    }
+}
+
+pub struct RuleBody<'input> {
+    head: Query<'input>,
+    tail: Vec<RuleBodyTail<'input>>,
+}
+
+impl<'input> RuleBody<'input> {
+    pub fn new(head: Query<'input>, tail: Vec<RuleBodyTail<'input>>) -> Self {
+        RuleBody { head, tail }
+    }
+}
+
+pub struct RuleBodyTail<'input> {
+    else_clause: Option<ElseClause<'input>>,
+    query: Query<'input>,
+}
+
+impl<'input> RuleBodyTail<'input> {
+    pub fn new(else_clause: Option<ElseClause<'input>>, query: Query<'input>) -> Self {
+        Self { else_clause, query }
+    }
+}
+
+pub struct ElseClause<'input> {
+    term: Option<Term<'input>>,
+}
+
+impl<'input> ElseClause<'input> {
+    pub fn new(term: Option<Term<'input>>) -> Self {
+        Self { term }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Query<'input> {
     statements: Vec<Statement<'input>>,
