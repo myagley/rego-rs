@@ -13,6 +13,12 @@ enum Op {
     Sub,
     Mul,
     Div,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+    EqEq,
+    Ne,
 }
 
 impl Op {
@@ -22,6 +28,12 @@ impl Op {
             Op::Sub => left - right,
             Op::Mul => left * right,
             Op::Div => left / right,
+            Op::Lt => Operand::from_owned(left.lt(&right).into()),
+            Op::Lte => Operand::from_owned(left.le(&right).into()),
+            Op::Gt => Operand::from_owned(left.gt(&right).into()),
+            Op::Gte => Operand::from_owned(left.ge(&right).into()),
+            Op::EqEq => Operand::from_owned(left.eq(&right).into()),
+            Op::Ne => Operand::from_owned(left.ne(&right).into()),
         }
     }
 }
@@ -70,8 +82,8 @@ impl<'a> Instance<'a> {
                 Noop => (),
                 Const(ref v) => self.value_stack.push(Operand::from_ref(v)),
                 Op(op) => {
-                    let left = self.value_stack.pop();
                     let right = self.value_stack.pop();
+                    let left = self.value_stack.pop();
                     match (left, right) {
                         (Some(left), Some(right)) => {
                             let result = op.op(left, right);
@@ -123,6 +135,12 @@ impl<'input> Visitor<'input> for &mut Compiler<'input> {
             Opcode::Sub => self.instructions.push(Instruction::Op(Op::Sub)),
             Opcode::Mul => self.instructions.push(Instruction::Op(Op::Mul)),
             Opcode::Div => self.instructions.push(Instruction::Op(Op::Div)),
+            Opcode::Lt => self.instructions.push(Instruction::Op(Op::Lt)),
+            Opcode::Lte => self.instructions.push(Instruction::Op(Op::Lte)),
+            Opcode::Gt => self.instructions.push(Instruction::Op(Op::Gt)),
+            Opcode::Gte => self.instructions.push(Instruction::Op(Op::Gte)),
+            Opcode::EqEq => self.instructions.push(Instruction::Op(Op::EqEq)),
+            Opcode::Ne => self.instructions.push(Instruction::Op(Op::Ne)),
             _ => todo!(),
         }
         Ok(())
@@ -153,7 +171,7 @@ mod tests {
 
     #[test]
     fn compile() {
-        let input = "(3 + 4) * 3";
+        let input = "(3 + 4) == 3";
         let term = parse_expr(&input).unwrap();
         let mut compiler = Compiler::new();
         term.accept(&mut compiler).unwrap();

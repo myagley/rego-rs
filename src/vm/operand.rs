@@ -3,7 +3,7 @@ use std::ops::{Add, Div, Mul, Sub};
 
 use crate::value::Value;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, PartialOrd)]
 pub struct Operand<'a>(Cow<'a, Value<'a>>);
 
 impl<'a> Operand<'a> {
