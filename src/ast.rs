@@ -229,7 +229,7 @@ pub enum StatementTarget<'input> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Term<'input> {
     BinOp(Box<Term<'input>>, Opcode, Box<Term<'input>>),
-    Scalar(Value<'input>),
+    Scalar(Value),
     Ref(Ref<'input>),
 }
 
@@ -292,7 +292,7 @@ impl<'input> RefTarget<'input> {
 pub enum RefArg<'input> {
     Collection(Collection<'input>),
     Var(&'input str),
-    Scalar(Value<'input>),
+    Scalar(Value),
     Anon,
 }
 

@@ -1,5 +1,4 @@
-use rego::ast::Query;
-use rego::parser::{parse_query, ParseError};
+use rego::parser::parse_query;
 
 fn main() {
     let query = parse_query("(2 + 3) - 5").unwrap();

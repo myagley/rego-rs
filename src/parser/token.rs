@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use ordered_float::NotNan;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -61,10 +59,10 @@ pub enum StringLiteral<'input> {
 
 impl<'input> StringLiteral<'input> {
     // TODO: implement unescaping
-    pub fn unescape(&self) -> Cow<'input, str> {
+    pub fn unescape(&self) -> String {
         match self {
-            Self::Escaped(s) => Cow::Borrowed(s),
-            Self::Str(s) => Cow::Borrowed(s),
+            Self::Escaped(s) => s.to_string(),
+            Self::Str(s) => s.to_string(),
         }
     }
 }

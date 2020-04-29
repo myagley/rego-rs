@@ -6,7 +6,7 @@ use super::{Map, Number, Set, Value};
 macro_rules! from_integer {
     ($($ty:ident)*) => {
         $(
-            impl From<$ty> for Value<'_> {
+            impl From<$ty> for Value {
                 fn from(n: $ty) -> Self {
                     Value::Number(n.into())
                 }
@@ -20,86 +20,86 @@ from_integer! {
     u8 u16 u32 u64 usize
 }
 
-impl From<f32> for Value<'_> {
+impl From<f32> for Value {
     fn from(f: f32) -> Self {
         From::from(f as f64)
     }
 }
 
-impl From<f64> for Value<'_> {
+impl From<f64> for Value {
     fn from(f: f64) -> Self {
         Number::from_f64(f).map_or(Value::Null, Value::Number)
     }
 }
 
-impl From<bool> for Value<'_> {
+impl From<bool> for Value {
     fn from(b: bool) -> Self {
         Value::Bool(b)
     }
 }
 
-impl From<String> for Value<'_> {
+impl From<String> for Value {
     fn from(s: String) -> Self {
-        Value::String(s.into())
+        Value::String(s)
     }
 }
 
-impl<'a> From<&'a str> for Value<'a> {
-    fn from(s: &'a str) -> Self {
-        Value::String(Cow::Borrowed(s))
+impl<'a> From<&'a str> for Value {
+    fn from(s: &str) -> Self {
+        Value::String(s.to_string())
     }
 }
 
-impl<'a> From<Cow<'a, str>> for Value<'a> {
+impl<'a> From<Cow<'a, str>> for Value {
     fn from(f: Cow<'a, str>) -> Self {
-        Value::String(f)
+        Value::String(f.into_owned())
     }
 }
 
-impl From<Number> for Value<'_> {
+impl From<Number> for Value {
     fn from(f: Number) -> Self {
         Value::Number(f)
     }
 }
 
-impl<'a> From<Map<String, Value<'a>>> for Value<'a> {
-    fn from(f: Map<String, Value<'a>>) -> Self {
-        let m = f.into_iter().map(|(k, v)| (k.into(), v)).collect();
+impl From<Map<String, Value>> for Value {
+    fn from(f: Map<String, Value>) -> Self {
+        let m = f.into_iter().map(|(k, v)| (Value::String(k), v)).collect();
         Value::Object(m)
     }
 }
 
-impl<'a> From<Map<Value<'a>, Value<'a>>> for Value<'a> {
-    fn from(f: Map<Value<'a>, Value<'a>>) -> Self {
+impl From<Map<Value, Value>> for Value {
+    fn from(f: Map<Value, Value>) -> Self {
         Value::Object(f)
     }
 }
 
-impl<'a> From<Set<Value<'a>>> for Value<'a> {
-    fn from(f: Set<Value<'a>>) -> Self {
+impl From<Set<Value>> for Value {
+    fn from(f: Set<Value>) -> Self {
         Value::Set(f)
     }
 }
 
-impl<'a, T: Into<Value<'a>>> From<Vec<T>> for Value<'a> {
+impl<T: Into<Value>> From<Vec<T>> for Value {
     fn from(f: Vec<T>) -> Self {
         Value::Array(f.into_iter().map(Into::into).collect())
     }
 }
 
-impl<'a, 'v, T: Clone + Into<Value<'v>>> From<&'a [T]> for Value<'v> {
+impl<'a, T: Clone + Into<Value>> From<&'a [T]> for Value {
     fn from(f: &'a [T]) -> Self {
         Value::Array(f.iter().cloned().map(Into::into).collect())
     }
 }
 
-impl<'a, T: Into<Value<'a>>> FromIterator<T> for Value<'a> {
+impl<T: Into<Value>> FromIterator<T> for Value {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         Value::Array(iter.into_iter().map(Into::into).collect())
     }
 }
 
-impl From<()> for Value<'_> {
+impl From<()> for Value {
     fn from((): ()) -> Self {
         Value::Null
     }

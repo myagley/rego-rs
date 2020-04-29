@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::ops::{Add, Div, Mul, Sub};
@@ -16,18 +15,18 @@ pub type Map<K, V> = BTreeMap<K, V>;
 pub type Set<V> = BTreeSet<V>;
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
-pub enum Value<'a> {
+pub enum Value {
     Undefined,
     Null,
     Bool(bool),
     Number(Number),
-    String(Cow<'a, str>),
-    Array(Vec<Value<'a>>),
-    Object(Map<Value<'a>, Value<'a>>),
-    Set(Set<Value<'a>>),
+    String(String),
+    Array(Vec<Value>),
+    Object(Map<Value, Value>),
+    Set(Set<Value>),
 }
 
-impl<'a> fmt::Debug for Value<'a> {
+impl fmt::Debug for Value {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Value::Undefined => formatter.debug_tuple("Undefined").finish(),
@@ -42,14 +41,14 @@ impl<'a> fmt::Debug for Value<'a> {
     }
 }
 
-impl<'a> fmt::Display for Value<'a> {
+impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Value::Undefined => write!(f, "undefined"),
             Value::Null => write!(f, "null"),
             Value::Bool(ref v) => fmt::Display::fmt(v, f),
             Value::Number(ref v) => fmt::Display::fmt(v, f),
-            Value::String(ref v) => write!(f, "\"{}\"", v),
+            Value::String(ref v) => write!(f, "\"{}\"", v.escape_default()),
             Value::Array(ref v) => {
                 write!(f, "[")?;
                 let mut iter = v.iter();
@@ -94,22 +93,22 @@ impl<'a> fmt::Display for Value<'a> {
     }
 }
 
-impl<'a> Default for Value<'a> {
-    fn default() -> Value<'a> {
-        Value::Undefined
+impl Default for Value {
+    fn default() -> Value {
+        Value::Null
     }
 }
 
-impl<'a> Value<'a> {
-    // pub fn get<I: Index>(&self, index: I) -> Option<&Value<'a>> {
-    //     index.index_into(self)
-    // }
-    //
-    // pub fn get_mut<I: Index>(&mut self, index: I) -> Option<&mut Value<'a>> {
-    //     index.index_into_mut(self)
-    // }
-    //
-    pub fn push(&mut self, value: Value<'a>) {
+impl Value {
+    pub fn get<I: Index>(&self, index: I) -> Option<&Value> {
+        index.index_into(self)
+    }
+
+    pub fn get_mut<I: Index>(&mut self, index: I) -> Option<&mut Value> {
+        index.index_into_mut(self)
+    }
+
+    pub fn push(&mut self, value: Value) {
         match self {
             Value::Array(ref mut a) => a.push(value),
             Value::Set(ref mut s) => {
@@ -119,34 +118,30 @@ impl<'a> Value<'a> {
         }
     }
 
-    pub fn insert(&mut self, key: Value<'a>, value: Value<'a>) {
+    pub fn insert(&mut self, key: Value, value: Value) {
         match self {
-            Value::Object(ref mut o) => {
-                o.insert(key, value);
+            Value::Object(ref mut m) => {
+                m.insert(key, value);
             }
             _ => (),
         }
     }
 
-    pub fn is_defined(&self) -> bool {
-        !matches!(self, Value::Undefined)
-    }
-
-    pub fn try_into_set(self) -> Result<Set<Value<'a>>, Error> {
+    pub fn try_into_set(self) -> Result<Set<Value>, Error> {
         match self {
             Value::Set(v) => Ok(v),
             v => Err(Error::InvalidType("set", Type(&v).ty())),
         }
     }
 
-    pub fn as_set(&self) -> Option<&Set<Value<'a>>> {
+    pub fn as_set(&self) -> Option<&Set<Value>> {
         match *self {
             Value::Set(ref set) => Some(set),
             _ => None,
         }
     }
 
-    pub fn as_set_mut(&mut self) -> Option<&mut Set<Value<'a>>> {
+    pub fn as_set_mut(&mut self) -> Option<&mut Set<Value>> {
         match *self {
             Value::Set(ref mut set) => Some(set),
             _ => None,
@@ -157,21 +152,21 @@ impl<'a> Value<'a> {
         self.as_set().is_some()
     }
 
-    pub fn try_into_object(self) -> Result<Map<Value<'a>, Value<'a>>, Error> {
+    pub fn try_into_object(self) -> Result<Map<Value, Value>, Error> {
         match self {
             Value::Object(map) => Ok(map),
             v => Err(Error::InvalidType("object", Type(&v).ty())),
         }
     }
 
-    pub fn as_object(&self) -> Option<&Map<Value<'a>, Value<'a>>> {
+    pub fn as_object(&self) -> Option<&Map<Value, Value>> {
         match *self {
             Value::Object(ref map) => Some(map),
             _ => None,
         }
     }
 
-    pub fn as_object_mut(&mut self) -> Option<&mut Map<Value<'a>, Value<'a>>> {
+    pub fn as_object_mut(&mut self) -> Option<&mut Map<Value, Value>> {
         match *self {
             Value::Object(ref mut map) => Some(map),
             _ => None,
@@ -182,21 +177,21 @@ impl<'a> Value<'a> {
         self.as_object().is_some()
     }
 
-    pub fn try_into_array(self) -> Result<Vec<Value<'a>>, Error> {
+    pub fn try_into_array(self) -> Result<Vec<Value>, Error> {
         match self {
             Value::Array(array) => Ok(array),
             v => Err(Error::InvalidType("array", Type(&v).ty())),
         }
     }
 
-    pub fn as_array(&self) -> Option<&Vec<Value<'a>>> {
+    pub fn as_array(&self) -> Option<&Vec<Value>> {
         match *self {
             Value::Array(ref array) => Some(array),
             _ => None,
         }
     }
 
-    pub fn as_array_mut(&mut self) -> Option<&mut Vec<Value<'a>>> {
+    pub fn as_array_mut(&mut self) -> Option<&mut Vec<Value>> {
         match *self {
             Value::Array(ref mut array) => Some(array),
             _ => None,
@@ -207,7 +202,7 @@ impl<'a> Value<'a> {
         self.as_array().is_some()
     }
 
-    pub fn try_into_string(self) -> Result<Cow<'a, str>, Error> {
+    pub fn try_into_string(self) -> Result<String, Error> {
         match self {
             Value::String(string) => Ok(string),
             v => Err(Error::InvalidType("string", Type(&v).ty())),
@@ -249,6 +244,27 @@ impl<'a> Value<'a> {
     pub fn is_i64(&self) -> bool {
         match *self {
             Value::Number(ref n) => n.is_i64(),
+            _ => false,
+        }
+    }
+
+    pub fn try_into_u64(self) -> Result<u64, Error> {
+        match self {
+            Value::Number(n) => n.try_into_u64(),
+            v => Err(Error::InvalidType("u64", Type(&v).ty())),
+        }
+    }
+
+    pub fn as_u64(&self) -> Option<u64> {
+        match *self {
+            Value::Number(ref n) => n.as_u64(),
+            _ => None,
+        }
+    }
+
+    pub fn is_u64(&self) -> bool {
+        match *self {
+            Value::Number(ref n) => n.is_u64(),
             _ => false,
         }
     }
@@ -304,9 +320,9 @@ impl<'a> Value<'a> {
     }
 }
 
-struct Type<'a, 'v>(&'a Value<'v>);
+struct Type<'a>(&'a Value);
 
-impl<'a, 'v> Type<'a, 'v> {
+impl<'a> Type<'a> {
     pub fn ty(&self) -> &'static str {
         match *self.0 {
             Value::Undefined => "undefined",
@@ -321,7 +337,7 @@ impl<'a, 'v> Type<'a, 'v> {
     }
 }
 
-impl<'a, 'v> fmt::Display for Type<'a, 'v> {
+impl<'a> fmt::Display for Type<'a> {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         match *self.0 {
             Value::Undefined => formatter.write_str("undefined"),
@@ -338,8 +354,8 @@ impl<'a, 'v> fmt::Display for Type<'a, 'v> {
 
 macro_rules! impl_binop {
     (impl $imp:ident, $method:ident) => {
-        impl<'v> $imp for Value<'v> {
-            type Output = Value<'static>;
+        impl $imp for Value {
+            type Output = Value;
 
             fn $method(self, other: Self) -> Self::Output {
                 match (self, other) {
@@ -349,10 +365,10 @@ macro_rules! impl_binop {
             }
         }
 
-        impl<'v> $imp<Value<'_>> for &'v Value<'v> {
-            type Output = Value<'static>;
+        impl<'v> $imp<Value> for &'v Value {
+            type Output = Value;
 
-            fn $method(self, other: Value<'_>) -> Self::Output {
+            fn $method(self, other: Value) -> Self::Output {
                 match (self, other) {
                     (Value::Number(ref l), Value::Number(r)) => Value::Number($imp::$method(*l, r)),
                     _ => Value::Undefined,
@@ -360,8 +376,8 @@ macro_rules! impl_binop {
             }
         }
 
-        impl<'v, 'a: 'v> $imp<&Value<'a>> for Value<'v> {
-            type Output = Value<'static>;
+        impl $imp<&Value> for Value {
+            type Output = Value;
 
             fn $method(self, other: &Self) -> Self::Output {
                 match (self, other) {
@@ -371,8 +387,8 @@ macro_rules! impl_binop {
             }
         }
 
-        impl<'v, 'a: 'v> $imp<&'a Value<'a>> for &'v Value<'v> {
-            type Output = Value<'static>;
+        impl<'v, 'a: 'v> $imp<&'a Value> for &'v Value {
+            type Output = Value;
 
             fn $method(self, other: Self) -> Self::Output {
                 match (self, other) {

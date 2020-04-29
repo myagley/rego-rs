@@ -76,6 +76,24 @@ impl Number {
     }
 
     #[inline]
+    pub fn try_into_u64(self) -> Result<u64, Error> {
+        match self.n {
+            N::PosInt(n) => Ok(n),
+            N::NegInt(_) => Err(Error::InvalidType("u64", "i64")),
+            N::Float(_) => Err(Error::InvalidType("u64", "f64")),
+        }
+    }
+
+    #[inline]
+    pub fn as_u64(&self) -> Option<u64> {
+        match self.n {
+            N::PosInt(n) => Some(n),
+            N::NegInt(_) => None,
+            N::Float(_) => None,
+        }
+    }
+
+    #[inline]
     pub fn try_into_f64(self) -> Result<f64, Error> {
         match self.n {
             N::PosInt(n) => Ok(n as f64),

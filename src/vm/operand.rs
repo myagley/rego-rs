@@ -4,34 +4,30 @@ use std::ops::{Add, Div, Mul, Sub};
 use crate::value::Value;
 
 #[derive(Debug, PartialEq, PartialOrd)]
-pub struct Operand<'a>(Cow<'a, Value<'a>>);
+pub struct Operand<'a>(Cow<'a, Value>);
 
 impl<'a> Operand<'a> {
-    pub fn undefined() -> Self {
-        Operand(Cow::Owned(Value::Undefined))
-    }
-
-    pub fn from_ref<'v: 'a>(value: &'v Value<'v>) -> Self {
+    pub fn from_ref(value: &'a Value) -> Self {
         Operand(Cow::Borrowed(value))
     }
 
-    pub fn from_owned(value: Value<'a>) -> Self {
+    pub fn from_owned(value: Value) -> Self {
         Operand(Cow::Owned(value))
     }
 
-    pub fn into_value(self) -> Value<'a> {
+    pub fn into_value(self) -> Value {
         self.0.into_owned()
     }
 }
 
-impl<'a> AsRef<Value<'a>> for Operand<'a> {
-    fn as_ref(&self) -> &Value<'a> {
+impl<'a> AsRef<Value> for Operand<'a> {
+    fn as_ref(&self) -> &Value {
         self.0.as_ref()
     }
 }
 
-impl<'a> AsMut<Value<'a>> for Operand<'a> {
-    fn as_mut(&mut self) -> &mut Value<'a> {
+impl<'a> AsMut<Value> for Operand<'a> {
+    fn as_mut(&mut self) -> &mut Value {
         self.0.to_mut()
     }
 }
