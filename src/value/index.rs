@@ -41,6 +41,49 @@ impl Index for usize {
     }
 }
 
+impl Index for Value {
+    fn index_into<'v>(&self, v: &'v Value) -> Option<&'v Value> {
+        match v {
+            Value::Array(ref vec) => {
+                self.as_u64().and_then(|u| vec.get(u as usize))
+            }
+            Value::Object(ref map) => {
+                map.get(self)
+            }
+            _ => None,
+        }
+    }
+
+    fn index_into_mut<'v>(&self, v: &'v mut Value) -> Option<&'v mut Value> {
+        match v {
+            Value::Array(ref mut vec) => {
+                self.as_u64().and_then(move |u| vec.get_mut(u as usize))
+            }
+            Value::Object(ref mut map) => {
+                map.get_mut(self)
+            }
+            _ => None,
+        }
+    }
+
+    fn index_or_insert<'v>(&self, v: &'v mut Value) -> &'v mut Value {
+        match v {
+            Value::Array(ref mut vec) => {
+                let len = vec.len();
+                self.as_u64().and_then(move |u| vec.get_mut(u as usize)).unwrap_or_else(move || {
+                    panic!("cannot access index {} of array of length {}", self, len)
+                })
+            }
+            Value::Object(ref mut map) => {
+                map.get_mut(self).unwrap_or_else(|| {
+                    panic!("cannot access key {} of object", self)
+                })
+            }
+            _ => panic!("cannot access index {} of value {}", self, Type(v)),
+        }
+    }
+}
+
 // impl Index for str {
 //     fn index_into<'v>(&self, v: &'v Value) -> Option<&'v Value> {
 //         match *v {
@@ -97,8 +140,11 @@ where
 }
 
 mod private {
+    use super::*;
+
     pub trait Sealed {}
     impl Sealed for usize {}
+    impl Sealed for Value {}
     impl Sealed for str {}
     impl Sealed for String {}
     impl<'a, T: ?Sized> Sealed for &'a T where T: Sealed {}
@@ -111,8 +157,8 @@ where
     type Output = Value;
 
     fn index(&self, index: I) -> &Value {
-        static NULL: Value = Value::Null;
-        index.index_into(self).unwrap_or(&NULL)
+        static UNDEFINED: Value = Value::Undefined;
+        index.index_into(self).unwrap_or(&UNDEFINED)
     }
 }
 

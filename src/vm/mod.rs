@@ -6,6 +6,8 @@ use typed_arena::Arena;
 use crate::ast::*;
 use crate::value::{Map, Set, Value};
 
+static UNDEFINED: Value = Value::Undefined;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum BinOp {
     Add,
@@ -49,6 +51,7 @@ enum Instruction {
     Const(Value),
     BinOp(BinOp),
     Collect(CollectType),
+    Index,
 }
 
 #[derive(Debug, PartialEq)]
@@ -163,6 +166,12 @@ impl<'a> Instance<'a> {
                         }
                     }
                 }
+                Index => {
+                    let arg = self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
+                    let target = self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
+                    let result = target.get(arg).unwrap_or_else(|| &UNDEFINED);
+                    self.value_stack.push(result);
+                }
             }
             pc += 1
         }
@@ -232,7 +241,12 @@ impl<'input> Visitor<'input> for &mut Compiler {
         Ok(())
     }
 
-    fn visit_ref_arg(self, _arg: &RefArg<'input>) -> Result<Self::Value, Self::Error> {
+    fn visit_ref_arg(self, arg: &RefArg<'input>) -> Result<Self::Value, Self::Error> {
+        match arg {
+            RefArg::Scalar(value) => self.instructions.push(Instruction::Const(value.clone())),
+            _ => todo!(),
+        }
+        self.instructions.push(Instruction::Index);
         Ok(())
     }
 
@@ -383,6 +397,38 @@ mod tests {
         let mut expected: Map<Value, Value> = Map::new();
         expected.insert("three".into(), 3.into());
         expected.insert("two".into(), 2.into());
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn test_array_index() {
+        let input = "[[3, 2], 2, 3][0][1]";
+        let term = parse_expr(&input).unwrap();
+        let mut compiler = Compiler::new();
+        term.accept(&mut compiler).unwrap();
+
+        let Compiler { instructions } = compiler;
+        let query = CompiledQuery {
+            instructions: Arc::new(instructions),
+        };
+        let result = query.eval().unwrap().unwrap();
+        let expected = Value::Number(2.into());
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn test_object_index() {
+        let input = "{\"three\": 3, \"two\": 2}[\"three\"]";
+        let term = parse_expr(&input).unwrap();
+        let mut compiler = Compiler::new();
+        term.accept(&mut compiler).unwrap();
+
+        let Compiler { instructions } = compiler;
+        let query = CompiledQuery {
+            instructions: Arc::new(instructions),
+        };
+        let result = query.eval().unwrap().unwrap();
+        let expected = Value::Number(3.into());
         assert_eq!(expected, result);
     }
 }
