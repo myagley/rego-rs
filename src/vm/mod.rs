@@ -1,12 +1,10 @@
 use std::fmt;
 use std::sync::Arc;
 
+use typed_arena::Arena;
+
 use crate::ast::*;
 use crate::value::{Map, Set, Value};
-
-mod operand;
-
-use self::operand::Operand;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum BinOp {
@@ -23,33 +21,41 @@ enum BinOp {
 }
 
 impl BinOp {
-    pub fn op<'a>(&self, left: Operand<'a>, right: Operand<'a>) -> Operand<'a> {
+    pub fn op(&self, left: &Value, right: &Value) -> Value {
         match self {
             BinOp::Add => left + right,
             BinOp::Sub => left - right,
             BinOp::Mul => left * right,
             BinOp::Div => left / right,
-            BinOp::Lt => Operand::from_owned(left.lt(&right).into()),
-            BinOp::Lte => Operand::from_owned(left.le(&right).into()),
-            BinOp::Gt => Operand::from_owned(left.gt(&right).into()),
-            BinOp::Gte => Operand::from_owned(left.ge(&right).into()),
-            BinOp::EqEq => Operand::from_owned(left.eq(&right).into()),
-            BinOp::Ne => Operand::from_owned(left.ne(&right).into()),
+            BinOp::Lt => left.lt(&right).into(),
+            BinOp::Lte => left.le(&right).into(),
+            BinOp::Gt => left.gt(&right).into(),
+            BinOp::Gte => left.ge(&right).into(),
+            BinOp::EqEq => left.eq(&right).into(),
+            BinOp::Ne => left.ne(&right).into(),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum CollectType {
+    Array,
+    Set,
+    Map,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 enum Instruction {
     Const(Value),
     BinOp(BinOp),
-    AppendValue,
-    InsertKeyValue,
+    Collect(CollectType),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
     InvalidNumArgs(usize, usize),
+    InvalidStack,
+    InvalidValueType(&'static str),
 }
 
 impl fmt::Display for Error {
@@ -60,6 +66,10 @@ impl fmt::Display for Error {
                 "invalid number of args for op. expected {}, got {}",
                 expected, got
             ),
+            Error::InvalidStack => write!(f, "expected item on stack."),
+            Error::InvalidValueType(t) => {
+                write!(f, "unexpected value type on stack: expected {}", t)
+            }
         }
     }
 }
@@ -82,21 +92,16 @@ impl CompiledQuery {
         let mut instance = Instance {
             instructions: self.instructions.clone(),
             value_stack: Vec::with_capacity(10),
+            heap: Arena::new(),
         };
         instance.eval()
-    }
-
-    fn instance(&self) -> Instance<'_> {
-        Instance {
-            instructions: self.instructions.clone(),
-            value_stack: Vec::with_capacity(10),
-        }
     }
 }
 
 struct Instance<'m> {
     instructions: Arc<Vec<Instruction>>,
-    value_stack: Vec<Operand<'m>>,
+    value_stack: Vec<&'m Value>,
+    heap: Arena<Value>,
 }
 
 impl<'a> Instance<'a> {
@@ -108,50 +113,60 @@ impl<'a> Instance<'a> {
 
         while pc < self.instructions.len() {
             match self.instructions[pc] {
-                Const(ref v) => self.value_stack.push(Operand::from_ref(v)),
+                Const(ref v) => self.value_stack.push(v),
                 BinOp(binop) => {
-                    let len = self.value_stack.len();
-                    let right = self.value_stack.pop();
-                    let left = self.value_stack.pop();
-                    match (left, right) {
-                        (Some(left), Some(right)) => {
-                            let result = binop.op(left, right);
-                            self.value_stack.push(result);
-                        }
-                        _ => return Err(Error::InvalidNumArgs(2, len)),
-                    }
+                    let right = self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
+                    let left = self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
+                    let result = self.heap.alloc(binop.op(left, right));
+                    self.value_stack.push(&*result);
                 }
-                AppendValue => {
-                    let len = self.value_stack.len();
-                    let value = self.value_stack.pop();
-                    let collection = self.value_stack.pop();
-                    match (collection, value) {
-                        (Some(mut collection), Some(value)) => {
-                            collection.as_mut().push(value.into_value());
-                            self.value_stack.push(collection);
+                Collect(ref ty) => {
+                    let len = self
+                        .value_stack
+                        .pop()
+                        .ok_or_else(|| Error::InvalidStack)?
+                        .as_u64()
+                        .ok_or_else(|| Error::InvalidValueType("u64"))?;
+
+                    match ty {
+                        CollectType::Array => {
+                            let mut result = vec![];
+                            for _i in 0..len {
+                                let value =
+                                    self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
+                                result.push(value.clone());
+                            }
+                            let result = self.heap.alloc(Value::Array(result));
+                            self.value_stack.push(&*result);
                         }
-                        _ => return Err(Error::InvalidNumArgs(2, len)),
-                    }
-                }
-                InsertKeyValue => {
-                    let len = self.value_stack.len();
-                    let value = self.value_stack.pop();
-                    let key = self.value_stack.pop();
-                    let collection = self.value_stack.pop();
-                    match (collection, key, value) {
-                        (Some(mut collection), Some(key), Some(value)) => {
-                            collection
-                                .as_mut()
-                                .insert(key.into_value(), value.into_value());
-                            self.value_stack.push(collection);
+                        CollectType::Set => {
+                            let mut result = Set::new();
+                            for _i in 0..len {
+                                let value =
+                                    self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
+                                result.insert(value.clone());
+                            }
+                            let result = self.heap.alloc(Value::Set(result));
+                            self.value_stack.push(&*result);
                         }
-                        _ => return Err(Error::InvalidNumArgs(3, len)),
+                        CollectType::Map => {
+                            let mut result = Map::new();
+                            for _i in 0..len {
+                                let value =
+                                    self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
+                                let key =
+                                    self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
+                                result.insert(key.clone(), value.clone());
+                            }
+                            let result = self.heap.alloc(Value::Object(result));
+                            self.value_stack.push(&*result);
+                        }
                     }
                 }
             }
             pc += 1
         }
-        Ok(self.value_stack.pop().map(|o| o.into_value()))
+        Ok(self.value_stack.pop().map(|o| o.clone()))
     }
 }
 
@@ -224,29 +239,51 @@ impl<'input> Visitor<'input> for &mut Compiler {
     fn visit_collection(self, collection: &Collection<'input>) -> Result<Self::Value, Self::Error> {
         match collection {
             Collection::Array(array) => {
-                self.instructions
-                    .push(Instruction::Const(Value::Array(vec![])));
-                for term in array {
+                let len = array.len();
+
+                // push the terms
+                for term in array.iter().rev() {
                     term.accept(&mut *self)?;
-                    self.instructions.push(Instruction::AppendValue);
                 }
+                // push the length
+                self.instructions
+                    .push(Instruction::Const(Value::Number(len.into())));
+
+                // push the collect instruction
+                self.instructions
+                    .push(Instruction::Collect(CollectType::Array));
             }
             Collection::Set(set) => {
-                self.instructions
-                    .push(Instruction::Const(Value::Set(Set::new())));
+                let len = set.len();
+
+                // push the terms
                 for term in set {
                     term.accept(&mut *self)?;
-                    self.instructions.push(Instruction::AppendValue);
                 }
+                // push the length
+                self.instructions
+                    .push(Instruction::Const(Value::Number(len.into())));
+
+                // push the collect instruction
+                self.instructions
+                    .push(Instruction::Collect(CollectType::Set));
             }
             Collection::Object(obj) => {
-                self.instructions
-                    .push(Instruction::Const(Value::Object(Map::new())));
+                let len = obj.len();
+
+                // push the terms
                 for (key, value) in obj {
                     key.accept(&mut *self)?;
                     value.accept(&mut *self)?;
-                    self.instructions.push(Instruction::InsertKeyValue);
                 }
+
+                // push the length
+                self.instructions
+                    .push(Instruction::Const(Value::Number(len.into())));
+
+                // push the collect instruction
+                self.instructions
+                    .push(Instruction::Collect(CollectType::Map));
             }
         }
         Ok(())

@@ -8,6 +8,7 @@ edition = "2018"
 lalrpop-util = "0.18"
 ordered-float = "1"
 serde = "1"
+typed-arena = "2"
 
 [build-dependencies]
 lalrpop = "0.18"

@@ -108,25 +108,6 @@ impl Value {
         index.index_into_mut(self)
     }
 
-    pub fn push(&mut self, value: Value) {
-        match self {
-            Value::Array(ref mut a) => a.push(value),
-            Value::Set(ref mut s) => {
-                s.insert(value);
-            }
-            _ => (),
-        }
-    }
-
-    pub fn insert(&mut self, key: Value, value: Value) {
-        match self {
-            Value::Object(ref mut m) => {
-                m.insert(key, value);
-            }
-            _ => (),
-        }
-    }
-
     pub fn try_into_set(self) -> Result<Set<Value>, Error> {
         match self {
             Value::Set(v) => Ok(v),
