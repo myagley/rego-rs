@@ -52,6 +52,7 @@ enum Instruction {
     BinOp(BinOp),
     Collect(CollectType),
     Index,
+    LoadGlobal,
 }
 
 #[derive(Debug, PartialEq)]
@@ -91,11 +92,15 @@ pub struct CompiledQuery {
 }
 
 impl CompiledQuery {
-    pub fn eval(&self) -> Result<Option<Value>, Error> {
+    pub fn eval(&self, input: Value) -> Result<Option<Value>, Error> {
+        let mut map = Map::new();
+        map.insert(Value::String("input".to_string()), input);
+
         let mut instance = Instance {
             instructions: self.instructions.clone(),
             value_stack: Vec::with_capacity(10),
             heap: Arena::new(),
+            data: Value::Object(map),
         };
         instance.eval()
     }
@@ -105,10 +110,11 @@ struct Instance<'m> {
     instructions: Arc<Vec<Instruction>>,
     value_stack: Vec<&'m Value>,
     heap: Arena<Value>,
+    data: Value,
 }
 
 impl<'a> Instance<'a> {
-    pub fn eval(&'a mut self) -> Result<Option<Value>, Error> {
+    fn eval(&'a mut self) -> Result<Option<Value>, Error> {
         use Instruction::*;
 
         let mut pc = 0;
@@ -171,6 +177,9 @@ impl<'a> Instance<'a> {
                     let target = self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
                     let result = target.get(arg).unwrap_or_else(|| &UNDEFINED);
                     self.value_stack.push(result);
+                }
+                LoadGlobal => {
+                    self.value_stack.push(&self.data);
                 }
             }
             pc += 1
@@ -235,6 +244,7 @@ impl<'input> Visitor<'input> for &mut Compiler {
 
     fn visit_ref_target(self, target: &RefTarget<'input>) -> Result<Self::Value, Self::Error> {
         match target {
+            RefTarget::Var(s) if s == &"data" => self.instructions.push(Instruction::LoadGlobal),
             RefTarget::Collection(c) => c.accept(&mut *self)?,
             _ => todo!(),
         }
@@ -321,7 +331,7 @@ mod tests {
         let query = CompiledQuery {
             instructions: Arc::new(instructions),
         };
-        let result = query.eval();
+        let result = query.eval(Value::Undefined);
         println!("result: {:?}", result);
     }
 
@@ -336,7 +346,7 @@ mod tests {
         let query = CompiledQuery {
             instructions: Arc::new(instructions),
         };
-        let result = query.eval();
+        let result = query.eval(Value::Undefined);
         println!("result: {:?}", result);
     }
 
@@ -351,7 +361,12 @@ mod tests {
         let query = CompiledQuery {
             instructions: Arc::new(instructions),
         };
-        let result = query.eval().unwrap().unwrap().try_into_array().unwrap();
+        let result = query
+            .eval(Value::Undefined)
+            .unwrap()
+            .unwrap()
+            .try_into_array()
+            .unwrap();
         let expected: Vec<Value> = vec![
             Value::Array(vec![Value::Number(3.into()), Value::Number(2.into())]),
             2.into(),
@@ -371,7 +386,12 @@ mod tests {
         let query = CompiledQuery {
             instructions: Arc::new(instructions),
         };
-        let result = query.eval().unwrap().unwrap().try_into_set().unwrap();
+        let result = query
+            .eval(Value::Undefined)
+            .unwrap()
+            .unwrap()
+            .try_into_set()
+            .unwrap();
         let mut expected: Set<Value> = Set::new();
         expected.insert(Value::Array(vec![
             Value::Number(3.into()),
@@ -393,7 +413,12 @@ mod tests {
         let query = CompiledQuery {
             instructions: Arc::new(instructions),
         };
-        let result = query.eval().unwrap().unwrap().try_into_object().unwrap();
+        let result = query
+            .eval(Value::Undefined)
+            .unwrap()
+            .unwrap()
+            .try_into_object()
+            .unwrap();
         let mut expected: Map<Value, Value> = Map::new();
         expected.insert("three".into(), 3.into());
         expected.insert("two".into(), 2.into());
@@ -411,7 +436,7 @@ mod tests {
         let query = CompiledQuery {
             instructions: Arc::new(instructions),
         };
-        let result = query.eval().unwrap().unwrap();
+        let result = query.eval(Value::Undefined).unwrap().unwrap();
         let expected = Value::Number(2.into());
         assert_eq!(expected, result);
     }
@@ -427,8 +452,26 @@ mod tests {
         let query = CompiledQuery {
             instructions: Arc::new(instructions),
         };
-        let result = query.eval().unwrap().unwrap();
+        let result = query.eval(Value::Undefined).unwrap().unwrap();
         let expected = Value::Number(3.into());
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn test_data_input() {
+        let query = "data.input.a == 3";
+        let term = parse_expr(&query).unwrap();
+        let mut compiler = Compiler::new();
+        term.accept(&mut compiler).unwrap();
+
+        let Compiler { instructions } = compiler;
+        let query = CompiledQuery {
+            instructions: Arc::new(instructions),
+        };
+        let mut input = Map::new();
+        input.insert(Value::String("a".to_string()), Value::Number(3.into()));
+        let result = query.eval(Value::Object(input)).unwrap().unwrap();
+        let expected = Value::Bool(true);
         assert_eq!(expected, result);
     }
 }

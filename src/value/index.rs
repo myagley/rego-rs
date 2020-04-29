@@ -44,24 +44,16 @@ impl Index for usize {
 impl Index for Value {
     fn index_into<'v>(&self, v: &'v Value) -> Option<&'v Value> {
         match v {
-            Value::Array(ref vec) => {
-                self.as_u64().and_then(|u| vec.get(u as usize))
-            }
-            Value::Object(ref map) => {
-                map.get(self)
-            }
+            Value::Array(ref vec) => self.as_u64().and_then(|u| vec.get(u as usize)),
+            Value::Object(ref map) => map.get(self),
             _ => None,
         }
     }
 
     fn index_into_mut<'v>(&self, v: &'v mut Value) -> Option<&'v mut Value> {
         match v {
-            Value::Array(ref mut vec) => {
-                self.as_u64().and_then(move |u| vec.get_mut(u as usize))
-            }
-            Value::Object(ref mut map) => {
-                map.get_mut(self)
-            }
+            Value::Array(ref mut vec) => self.as_u64().and_then(move |u| vec.get_mut(u as usize)),
+            Value::Object(ref mut map) => map.get_mut(self),
             _ => None,
         }
     }
@@ -70,15 +62,15 @@ impl Index for Value {
         match v {
             Value::Array(ref mut vec) => {
                 let len = vec.len();
-                self.as_u64().and_then(move |u| vec.get_mut(u as usize)).unwrap_or_else(move || {
-                    panic!("cannot access index {} of array of length {}", self, len)
-                })
+                self.as_u64()
+                    .and_then(move |u| vec.get_mut(u as usize))
+                    .unwrap_or_else(move || {
+                        panic!("cannot access index {} of array of length {}", self, len)
+                    })
             }
-            Value::Object(ref mut map) => {
-                map.get_mut(self).unwrap_or_else(|| {
-                    panic!("cannot access key {} of object", self)
-                })
-            }
+            Value::Object(ref mut map) => map
+                .get_mut(self)
+                .unwrap_or_else(|| panic!("cannot access key {} of object", self)),
             _ => panic!("cannot access index {} of value {}", self, Type(v)),
         }
     }
