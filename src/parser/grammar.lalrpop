@@ -1,9 +1,9 @@
 use ordered_float::NotNan;
 
 use crate::Location;
-use crate::ast::*;
 use crate::parser::lexer::Error;
 use crate::parser::token::{StringLiteral, Token};
+use crate::parser::tree::*;
 use crate::value::{Number, Value};
 
 grammar<'input>(input: &'input str);

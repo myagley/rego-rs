@@ -3,9 +3,10 @@ use lalrpop_util::lalrpop_mod;
 lalrpop_mod!(grammar, "/parser/grammar.rs");
 pub mod lexer;
 mod token;
+pub mod tree;
 
 use self::lexer::Error as LexerError;
-use crate::ast::{Module, Query, Term};
+use crate::parser::tree::{Module, Query, Term};
 use crate::Location;
 
 pub use lexer::Lexer;

@@ -4,6 +4,7 @@ use std::sync::Arc;
 use typed_arena::Arena;
 
 use crate::ast::*;
+use crate::parser::tree::Term;
 use crate::value::{Map, Set, Value};
 
 static UNDEFINED: Value = Value::Undefined;
@@ -39,6 +40,23 @@ impl BinOp {
     }
 }
 
+impl fmt::Display for BinOp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            BinOp::Add => write!(f, "add"),
+            BinOp::Sub => write!(f, "sub"),
+            BinOp::Mul => write!(f, "mul"),
+            BinOp::Div => write!(f, "div"),
+            BinOp::Lt => write!(f, "lt"),
+            BinOp::Lte => write!(f, "lte"),
+            BinOp::Gt => write!(f, "gt"),
+            BinOp::Gte => write!(f, "gte"),
+            BinOp::EqEq => write!(f, "eqeq"),
+            BinOp::Ne => write!(f, "ne"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum CollectType {
     Array,
@@ -46,13 +64,35 @@ enum CollectType {
     Map,
 }
 
+impl fmt::Display for CollectType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Array => write!(f, "arr"),
+            Self::Set => write!(f, "set"),
+            Self::Map => write!(f, "map"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum Instruction {
     Const(Value),
     BinOp(BinOp),
-    Collect(CollectType),
+    Collect(CollectType, usize),
     Index,
     LoadGlobal,
+}
+
+impl fmt::Display for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Const(v) => write!(f, "const {}", v),
+            Self::BinOp(op) => write!(f, "binop {}", op),
+            Self::Collect(ty, size) => write!(f, "collect {} {}", ty, size),
+            Self::Index => write!(f, "index"),
+            Self::LoadGlobal => write!(f, "loadg"),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -92,6 +132,18 @@ pub struct CompiledQuery {
 }
 
 impl CompiledQuery {
+    pub fn from_term(term: Term<'_>) -> Result<Self, Error> {
+        let expr = Expr::from(term);
+        let mut compiler = Compiler::new();
+        expr.accept(&mut compiler)?;
+
+        let Compiler { instructions } = compiler;
+        let query = CompiledQuery {
+            instructions: Arc::new(instructions),
+        };
+        Ok(query)
+    }
+
     pub fn eval(&self, input: Value) -> Result<Option<Value>, Error> {
         let mut instance = Instance {
             instructions: self.instructions.clone(),
@@ -100,6 +152,15 @@ impl CompiledQuery {
             input,
         };
         instance.eval()
+    }
+}
+
+impl fmt::Display for CompiledQuery {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for i in self.instructions.as_ref() {
+            writeln!(f, "{}", i)?
+        }
+        Ok(())
     }
 }
 
@@ -126,49 +187,39 @@ impl<'a> Instance<'a> {
                     let result = self.heap.alloc(binop.op(left, right));
                     self.value_stack.push(&*result);
                 }
-                Collect(ref ty) => {
-                    let len = self
-                        .value_stack
-                        .pop()
-                        .ok_or_else(|| Error::InvalidStack)?
-                        .as_u64()
-                        .ok_or_else(|| Error::InvalidValueType("u64"))?;
-
-                    match ty {
-                        CollectType::Array => {
-                            let mut result = vec![];
-                            for _i in 0..len {
-                                let value =
-                                    self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
-                                result.push(value.clone());
-                            }
-                            let result = self.heap.alloc(Value::Array(result));
-                            self.value_stack.push(&*result);
+                Collect(ref ty, len) => match ty {
+                    CollectType::Array => {
+                        let mut result = vec![];
+                        for _i in 0..len {
+                            let value =
+                                self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
+                            result.push(value.clone());
                         }
-                        CollectType::Set => {
-                            let mut result = Set::new();
-                            for _i in 0..len {
-                                let value =
-                                    self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
-                                result.insert(value.clone());
-                            }
-                            let result = self.heap.alloc(Value::Set(result));
-                            self.value_stack.push(&*result);
-                        }
-                        CollectType::Map => {
-                            let mut result = Map::new();
-                            for _i in 0..len {
-                                let value =
-                                    self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
-                                let key =
-                                    self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
-                                result.insert(key.clone(), value.clone());
-                            }
-                            let result = self.heap.alloc(Value::Object(result));
-                            self.value_stack.push(&*result);
-                        }
+                        let result = self.heap.alloc(Value::Array(result));
+                        self.value_stack.push(&*result);
                     }
-                }
+                    CollectType::Set => {
+                        let mut result = Set::new();
+                        for _i in 0..len {
+                            let value =
+                                self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
+                            result.insert(value.clone());
+                        }
+                        let result = self.heap.alloc(Value::Set(result));
+                        self.value_stack.push(&*result);
+                    }
+                    CollectType::Map => {
+                        let mut result = Map::new();
+                        for _i in 0..len {
+                            let value =
+                                self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
+                            let key = self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
+                            result.insert(key.clone(), value.clone());
+                        }
+                        let result = self.heap.alloc(Value::Object(result));
+                        self.value_stack.push(&*result);
+                    }
+                },
                 Index => {
                     let arg = self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
                     let target = self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
@@ -197,19 +248,32 @@ impl Compiler {
     }
 }
 
-impl<'input> Visitor<'input> for &mut Compiler {
+impl Visitor for &mut Compiler {
     type Value = ();
     type Error = Error;
 
-    fn visit_term(self, term: &Term<'input>) -> Result<Self::Value, Self::Error> {
-        match term {
-            Term::BinOp(left, op, right) => {
+    fn visit_expr(self, expr: &Expr) -> Result<Self::Value, Self::Error> {
+        match expr {
+            Expr::Scalar(value) => self.instructions.push(Instruction::Const(value.clone())),
+            Expr::Collection(collection) => collection.accept(&mut *self)?,
+            Expr::Comprehension(compr) => compr.accept(&mut *self)?,
+            Expr::Var(ref s) if s == &"input" => self.instructions.push(Instruction::LoadGlobal),
+            Expr::BinOp(left, op, right) => {
                 left.accept(&mut *self)?;
                 right.accept(&mut *self)?;
                 op.accept(&mut *self)?;
             }
-            Term::Scalar(value) => self.instructions.push(Instruction::Const(value.clone())),
-            Term::Ref(r) => r.accept(&mut *self)?,
+            Expr::Index(refs) => {
+                let mut iter = refs.iter();
+                if let Some(head) = iter.next() {
+                    head.accept(&mut *self)?;
+                    for next in iter {
+                        next.accept(&mut *self)?;
+                        self.instructions.push(Instruction::Index);
+                    }
+                }
+            }
+            _ => todo!(),
         }
         Ok(())
     }
@@ -231,33 +295,7 @@ impl<'input> Visitor<'input> for &mut Compiler {
         Ok(())
     }
 
-    fn visit_ref(self, r: &Ref<'input>) -> Result<Self::Value, Self::Error> {
-        r.target().accept(&mut *self)?;
-        for arg in r.args() {
-            arg.accept(&mut *self)?;
-        }
-        Ok(())
-    }
-
-    fn visit_ref_target(self, target: &RefTarget<'input>) -> Result<Self::Value, Self::Error> {
-        match target {
-            RefTarget::Var(s) if s == &"input" => self.instructions.push(Instruction::LoadGlobal),
-            RefTarget::Collection(c) => c.accept(&mut *self)?,
-            _ => todo!(),
-        }
-        Ok(())
-    }
-
-    fn visit_ref_arg(self, arg: &RefArg<'input>) -> Result<Self::Value, Self::Error> {
-        match arg {
-            RefArg::Scalar(value) => self.instructions.push(Instruction::Const(value.clone())),
-            _ => todo!(),
-        }
-        self.instructions.push(Instruction::Index);
-        Ok(())
-    }
-
-    fn visit_collection(self, collection: &Collection<'input>) -> Result<Self::Value, Self::Error> {
+    fn visit_collection(self, collection: &Collection) -> Result<Self::Value, Self::Error> {
         match collection {
             Collection::Array(array) => {
                 let len = array.len();
@@ -266,13 +304,10 @@ impl<'input> Visitor<'input> for &mut Compiler {
                 for term in array.iter().rev() {
                     term.accept(&mut *self)?;
                 }
-                // push the length
-                self.instructions
-                    .push(Instruction::Const(Value::Number(len.into())));
 
                 // push the collect instruction
                 self.instructions
-                    .push(Instruction::Collect(CollectType::Array));
+                    .push(Instruction::Collect(CollectType::Array, len));
             }
             Collection::Set(set) => {
                 let len = set.len();
@@ -281,13 +316,10 @@ impl<'input> Visitor<'input> for &mut Compiler {
                 for term in set {
                     term.accept(&mut *self)?;
                 }
-                // push the length
-                self.instructions
-                    .push(Instruction::Const(Value::Number(len.into())));
 
                 // push the collect instruction
                 self.instructions
-                    .push(Instruction::Collect(CollectType::Set));
+                    .push(Instruction::Collect(CollectType::Set, len));
             }
             Collection::Object(obj) => {
                 let len = obj.len();
@@ -298,15 +330,18 @@ impl<'input> Visitor<'input> for &mut Compiler {
                     value.accept(&mut *self)?;
                 }
 
-                // push the length
-                self.instructions
-                    .push(Instruction::Const(Value::Number(len.into())));
-
                 // push the collect instruction
                 self.instructions
-                    .push(Instruction::Collect(CollectType::Map));
+                    .push(Instruction::Collect(CollectType::Map, len));
             }
         }
+        Ok(())
+    }
+
+    fn visit_comprehension(
+        self,
+        _comprehension: &Comprehension,
+    ) -> Result<Self::Value, Self::Error> {
         Ok(())
     }
 }
@@ -336,13 +371,7 @@ mod tests {
     fn compile() {
         let input = "(3 + 4) == 3";
         let term = parse_expr(&input).unwrap();
-        let mut compiler = Compiler::new();
-        term.accept(&mut compiler).unwrap();
-
-        let Compiler { instructions } = compiler;
-        let query = CompiledQuery {
-            instructions: Arc::new(instructions),
-        };
+        let query = CompiledQuery::from_term(term).unwrap();
         let result = query.eval(Value::Undefined);
         println!("result: {:?}", result);
     }
@@ -351,13 +380,7 @@ mod tests {
     fn test_array() {
         let input = "[[3, 2], 2, 3]";
         let term = parse_expr(&input).unwrap();
-        let mut compiler = Compiler::new();
-        term.accept(&mut compiler).unwrap();
-
-        let Compiler { instructions } = compiler;
-        let query = CompiledQuery {
-            instructions: Arc::new(instructions),
-        };
+        let query = CompiledQuery::from_term(term).unwrap();
         let result = query
             .eval(Value::Undefined)
             .unwrap()
@@ -376,13 +399,7 @@ mod tests {
     fn test_set() {
         let input = "{[3, 2], 2, 3}";
         let term = parse_expr(&input).unwrap();
-        let mut compiler = Compiler::new();
-        term.accept(&mut compiler).unwrap();
-
-        let Compiler { instructions } = compiler;
-        let query = CompiledQuery {
-            instructions: Arc::new(instructions),
-        };
+        let query = CompiledQuery::from_term(term).unwrap();
         let result = query
             .eval(Value::Undefined)
             .unwrap()
@@ -403,13 +420,7 @@ mod tests {
     fn test_object() {
         let input = "{\"three\": 3, \"two\": 2}";
         let term = parse_expr(&input).unwrap();
-        let mut compiler = Compiler::new();
-        term.accept(&mut compiler).unwrap();
-
-        let Compiler { instructions } = compiler;
-        let query = CompiledQuery {
-            instructions: Arc::new(instructions),
-        };
+        let query = CompiledQuery::from_term(term).unwrap();
         let result = query
             .eval(Value::Undefined)
             .unwrap()
@@ -426,13 +437,7 @@ mod tests {
     fn test_array_index() {
         let input = "[[3, 2], 2, 3][0][1]";
         let term = parse_expr(&input).unwrap();
-        let mut compiler = Compiler::new();
-        term.accept(&mut compiler).unwrap();
-
-        let Compiler { instructions } = compiler;
-        let query = CompiledQuery {
-            instructions: Arc::new(instructions),
-        };
+        let query = CompiledQuery::from_term(term).unwrap();
         let result = query.eval(Value::Undefined).unwrap().unwrap();
         let expected = Value::Number(2.into());
         assert_eq!(expected, result);
@@ -442,13 +447,7 @@ mod tests {
     fn test_object_index() {
         let input = "{\"three\": 3, \"two\": 2}[\"three\"]";
         let term = parse_expr(&input).unwrap();
-        let mut compiler = Compiler::new();
-        term.accept(&mut compiler).unwrap();
-
-        let Compiler { instructions } = compiler;
-        let query = CompiledQuery {
-            instructions: Arc::new(instructions),
-        };
+        let query = CompiledQuery::from_term(term).unwrap();
         let result = query.eval(Value::Undefined).unwrap().unwrap();
         let expected = Value::Number(3.into());
         assert_eq!(expected, result);
@@ -458,13 +457,7 @@ mod tests {
     fn test_data_input() {
         let query = "input.a == 3";
         let term = parse_expr(&query).unwrap();
-        let mut compiler = Compiler::new();
-        term.accept(&mut compiler).unwrap();
-
-        let Compiler { instructions } = compiler;
-        let query = CompiledQuery {
-            instructions: Arc::new(instructions),
-        };
+        let query = CompiledQuery::from_term(term).unwrap();
         let mut input = Map::new();
         input.insert(Value::String("a".to_string()), Value::Number(3.into()));
         let result = query.eval(Value::Object(input)).unwrap().unwrap();

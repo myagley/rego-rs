@@ -1,400 +1,17 @@
+use crate::parser::tree;
 use crate::value::Value;
 
-pub trait Visitor<'input> {
+pub trait Visitor {
     type Value;
     type Error;
 
-    fn visit_term(self, term: &Term<'input>) -> Result<Self::Value, Self::Error>;
+    fn visit_expr(self, expr: &Expr) -> Result<Self::Value, Self::Error>;
 
     fn visit_opcode(self, opcode: &Opcode) -> Result<Self::Value, Self::Error>;
 
-    fn visit_ref(self, target: &Ref<'input>) -> Result<Self::Value, Self::Error>;
+    fn visit_collection(self, target: &Collection) -> Result<Self::Value, Self::Error>;
 
-    fn visit_ref_target(self, target: &RefTarget<'input>) -> Result<Self::Value, Self::Error>;
-
-    fn visit_ref_arg(self, target: &RefArg<'input>) -> Result<Self::Value, Self::Error>;
-
-    fn visit_collection(self, target: &Collection<'input>) -> Result<Self::Value, Self::Error>;
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Module<'input> {
-    package: Ref<'input>,
-    imports: Vec<Import<'input>>,
-    rules: Vec<Rule<'input>>,
-}
-
-impl<'input> Module<'input> {
-    pub fn new(
-        package: Ref<'input>,
-        imports: Vec<Import<'input>>,
-        rules: Vec<Rule<'input>>,
-    ) -> Self {
-        Self {
-            package,
-            imports,
-            rules,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Import<'input> {
-    term: Ref<'input>,
-    as_term: Option<&'input str>,
-}
-
-impl<'input> Import<'input> {
-    pub fn new(term: Ref<'input>, as_term: Option<&'input str>) -> Self {
-        Self { term, as_term }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Rule<'input> {
-    Default(DefaultRule<'input>),
-    Complete(CompleteRule<'input>),
-    Set(SetRule<'input>),
-    Object(ObjectRule<'input>),
-    Function(FunctionRule<'input>),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct DefaultRule<'input> {
-    name: &'input str,
-    term: Term<'input>,
-}
-
-impl<'input> DefaultRule<'input> {
-    pub fn new(name: &'input str, term: Term<'input>) -> Self {
-        Self { name, term }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct CompleteRule<'input> {
-    name: &'input str,
-    value: Option<Term<'input>>,
-    body: Option<RuleBody<'input>>,
-}
-
-impl<'input> CompleteRule<'input> {
-    pub fn new(
-        name: &'input str,
-        value: Option<Term<'input>>,
-        body: Option<RuleBody<'input>>,
-    ) -> Self {
-        Self { name, value, body }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SetRule<'input> {
-    name: &'input str,
-    key: Term<'input>,
-    body: Option<RuleBody<'input>>,
-}
-
-impl<'input> SetRule<'input> {
-    pub fn new(name: &'input str, key: Term<'input>, body: Option<RuleBody<'input>>) -> Self {
-        Self { name, key, body }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ObjectRule<'input> {
-    name: &'input str,
-    key: Term<'input>,
-    value: Term<'input>,
-    body: Option<RuleBody<'input>>,
-}
-
-impl<'input> ObjectRule<'input> {
-    pub fn new(
-        name: &'input str,
-        key: Term<'input>,
-        value: Term<'input>,
-        body: Option<RuleBody<'input>>,
-    ) -> Self {
-        Self {
-            name,
-            key,
-            value,
-            body,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct FunctionRule<'input> {
-    name: &'input str,
-    args: Vec<Term<'input>>,
-    value: Term<'input>,
-    body: Option<RuleBody<'input>>,
-}
-
-impl<'input> FunctionRule<'input> {
-    pub fn new(
-        name: &'input str,
-        args: Vec<Term<'input>>,
-        value: Term<'input>,
-        body: Option<RuleBody<'input>>,
-    ) -> Self {
-        Self {
-            name,
-            args,
-            value,
-            body,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct RuleBody<'input> {
-    head: Query<'input>,
-    tail: Vec<RuleBodyTail<'input>>,
-}
-
-impl<'input> RuleBody<'input> {
-    pub fn new(head: Query<'input>, tail: Vec<RuleBodyTail<'input>>) -> Self {
-        RuleBody { head, tail }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct RuleBodyTail<'input> {
-    else_clause: Option<ElseClause<'input>>,
-    query: Query<'input>,
-}
-
-impl<'input> RuleBodyTail<'input> {
-    pub fn new(else_clause: Option<ElseClause<'input>>, query: Query<'input>) -> Self {
-        Self { else_clause, query }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ElseClause<'input> {
-    term: Option<Term<'input>>,
-}
-
-impl<'input> ElseClause<'input> {
-    pub fn new(term: Option<Term<'input>>) -> Self {
-        Self { term }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Query<'input> {
-    statements: Vec<Statement<'input>>,
-}
-
-impl<'input> Query<'input> {
-    pub fn new(statements: Vec<Statement<'input>>) -> Self {
-        Self { statements }
-    }
-
-    pub fn into_statements(self) -> Vec<Statement<'input>> {
-        self.statements
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Statement<'input> {
-    target: StatementTarget<'input>,
-    with: Vec<With<'input>>,
-}
-
-impl<'input> Statement<'input> {
-    pub fn new(target: StatementTarget<'input>, with: Vec<With<'input>>) -> Self {
-        Self { target, with }
-    }
-
-    pub fn into_parts(self) -> (StatementTarget<'input>, Vec<With<'input>>) {
-        (self.target, self.with)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct With<'input> {
-    term: Term<'input>,
-    as_term: Term<'input>,
-}
-
-impl<'input> With<'input> {
-    pub fn new(term: Term<'input>, as_term: Term<'input>) -> Self {
-        Self { term, as_term }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum StatementTarget<'input> {
-    Expr(Term<'input>),
-    NotExpr(Term<'input>),
-    Some(Vec<&'input str>),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Term<'input> {
-    BinOp(Box<Term<'input>>, Opcode, Box<Term<'input>>),
-    Scalar(Value),
-    Ref(Ref<'input>),
-}
-
-impl<'input> Term<'input> {
-    pub fn accept<V>(&self, visitor: V) -> Result<V::Value, V::Error>
-    where
-        V: Visitor<'input>,
-    {
-        visitor.visit_term(self)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Ref<'input> {
-    target: Box<RefTarget<'input>>,
-    args: Vec<RefArg<'input>>,
-}
-
-impl<'input> Ref<'input> {
-    pub fn new(target: Box<RefTarget<'input>>, args: Vec<RefArg<'input>>) -> Self {
-        Self { target, args }
-    }
-
-    pub fn target(&self) -> &RefTarget<'input> {
-        &self.target
-    }
-
-    pub fn args(&self) -> &[RefArg<'input>] {
-        &self.args
-    }
-
-    pub fn into_parts(self) -> (Box<RefTarget<'input>>, Vec<RefArg<'input>>) {
-        (self.target, self.args)
-    }
-
-    pub fn accept<V>(&self, visitor: V) -> Result<V::Value, V::Error>
-    where
-        V: Visitor<'input>,
-    {
-        visitor.visit_ref(self)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum RefTarget<'input> {
-    Var(&'input str),
-    Collection(Collection<'input>),
-    ExprCall(ExprCall<'input>),
-    ArrayCompr(ArrayCompr<'input>),
-    SetCompr(SetCompr<'input>),
-    ObjectCompr(ObjectCompr<'input>),
-}
-
-impl<'input> RefTarget<'input> {
-    pub fn accept<V>(&self, visitor: V) -> Result<V::Value, V::Error>
-    where
-        V: Visitor<'input>,
-    {
-        visitor.visit_ref_target(self)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum RefArg<'input> {
-    Collection(Collection<'input>),
-    Var(&'input str),
-    Scalar(Value),
-    Anon,
-}
-
-impl<'input> RefArg<'input> {
-    pub fn accept<V>(&self, visitor: V) -> Result<V::Value, V::Error>
-    where
-        V: Visitor<'input>,
-    {
-        visitor.visit_ref_arg(self)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ExprCall<'input> {
-    target: Ref<'input>,
-    args: Vec<Term<'input>>,
-}
-
-impl<'input> ExprCall<'input> {
-    pub fn new(target: Ref<'input>, args: Vec<Term<'input>>) -> Self {
-        Self { target, args }
-    }
-
-    pub fn into_parts(self) -> (Ref<'input>, Vec<Term<'input>>) {
-        (self.target, self.args)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Collection<'input> {
-    Array(Vec<Term<'input>>),
-    Set(Vec<Term<'input>>),
-    Object(Vec<(Term<'input>, Term<'input>)>),
-}
-
-impl<'input> Collection<'input> {
-    pub fn accept<V>(&self, visitor: V) -> Result<V::Value, V::Error>
-    where
-        V: Visitor<'input>,
-    {
-        visitor.visit_collection(self)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ArrayCompr<'input> {
-    term: Term<'input>,
-    body: Query<'input>,
-}
-
-impl<'input> ArrayCompr<'input> {
-    pub fn new(term: Term<'input>, body: Query<'input>) -> Self {
-        Self { term, body }
-    }
-
-    pub fn into_parts(self) -> (Term<'input>, Query<'input>) {
-        (self.term, self.body)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SetCompr<'input> {
-    term: Term<'input>,
-    body: Query<'input>,
-}
-
-impl<'input> SetCompr<'input> {
-    pub fn new(term: Term<'input>, body: Query<'input>) -> Self {
-        Self { term, body }
-    }
-
-    pub fn into_parts(self) -> (Term<'input>, Query<'input>) {
-        (self.term, self.body)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ObjectCompr<'input> {
-    item: (Term<'input>, Term<'input>),
-    body: Query<'input>,
-}
-
-impl<'input> ObjectCompr<'input> {
-    pub fn new(item: (Term<'input>, Term<'input>), body: Query<'input>) -> Self {
-        Self { item, body }
-    }
-
-    pub fn into_parts(self) -> ((Term<'input>, Term<'input>), Query<'input>) {
-        (self.item, self.body)
-    }
+    fn visit_comprehension(self, target: &Comprehension) -> Result<Self::Value, Self::Error>;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -413,13 +30,249 @@ pub enum Opcode {
     Ne,
     Eq,
     Assign,
+    Union,
+    Intersect,
 }
 
 impl Opcode {
-    pub fn accept<'input, V>(&self, visitor: V) -> Result<V::Value, V::Error>
+    pub fn accept<V>(&self, visitor: V) -> Result<V::Value, V::Error>
     where
-        V: Visitor<'input>,
+        V: Visitor,
     {
         visitor.visit_opcode(self)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Collection {
+    Array(Vec<Expr>),
+    Set(Vec<Expr>),
+    Object(Vec<(Expr, Expr)>),
+}
+
+impl Collection {
+    pub fn accept<V>(&self, visitor: V) -> Result<V::Value, V::Error>
+    where
+        V: Visitor,
+    {
+        visitor.visit_collection(self)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Comprehension {
+    Array(Box<Expr>, Box<Expr>),
+    Set(Box<Expr>, Box<Expr>),
+    Object(Box<(Expr, Expr)>, Box<Expr>),
+}
+
+impl Comprehension {
+    pub fn accept<V>(&self, visitor: V) -> Result<V::Value, V::Error>
+    where
+        V: Visitor,
+    {
+        visitor.visit_comprehension(self)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Expr {
+    Scalar(Value),
+    Collection(Collection),
+    Comprehension(Comprehension),
+    Var(String),
+
+    BinOp(Box<Expr>, Opcode, Box<Expr>),
+    Index(Vec<Expr>),
+    Call(String, Vec<Expr>),
+
+    Not(Box<Expr>),
+    Some(Vec<String>),
+}
+
+impl Expr {
+    pub fn accept<V>(&self, visitor: V) -> Result<V::Value, V::Error>
+    where
+        V: Visitor,
+    {
+        visitor.visit_expr(self)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Clause {
+    value: Expr,
+    body: Expr,
+    is_else: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Rule {
+    name: String,
+    default: Option<Expr>,
+    value: Vec<Clause>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Module {
+    name: String,
+    rules: Vec<Rule>,
+}
+
+impl From<tree::Opcode> for Opcode {
+    fn from(op: tree::Opcode) -> Self {
+        match op {
+            tree::Opcode::Add => Opcode::Add,
+            tree::Opcode::Sub => Opcode::Sub,
+            tree::Opcode::Mul => Opcode::Mul,
+            tree::Opcode::Div => Opcode::Div,
+            tree::Opcode::And => Opcode::And,
+            tree::Opcode::Or => Opcode::Or,
+            tree::Opcode::Lt => Opcode::Lt,
+            tree::Opcode::Lte => Opcode::Lte,
+            tree::Opcode::Gt => Opcode::Gt,
+            tree::Opcode::Gte => Opcode::Gte,
+            tree::Opcode::EqEq => Opcode::EqEq,
+            tree::Opcode::Ne => Opcode::Ne,
+            tree::Opcode::Eq => Opcode::Eq,
+            tree::Opcode::Assign => Opcode::Assign,
+        }
+    }
+}
+
+impl From<tree::Term<'_>> for Expr {
+    fn from(term: tree::Term<'_>) -> Self {
+        match term {
+            tree::Term::BinOp(left, op, right) => Expr::BinOp(
+                Box::new(Expr::from(*left)),
+                op.into(),
+                Box::new(Expr::from(*right)),
+            ),
+            tree::Term::Scalar(value) => Expr::Scalar(value),
+            tree::Term::Ref(r) => Expr::from(r),
+        }
+    }
+}
+
+impl From<tree::Ref<'_>> for Expr {
+    fn from(r: tree::Ref<'_>) -> Self {
+        let (target, args) = r.into_parts();
+        if args.len() == 0 {
+            Expr::from(*target)
+        } else {
+            let len = args.len() + 1;
+            let target = Expr::from(*target);
+            let mut args = args.into_iter().map(Expr::from).collect();
+            let mut indexed = Vec::with_capacity(len);
+            indexed.push(target);
+            indexed.append(&mut args);
+            Expr::Index(indexed)
+        }
+    }
+}
+
+impl From<tree::RefTarget<'_>> for Expr {
+    fn from(r: tree::RefTarget<'_>) -> Expr {
+        match r {
+            tree::RefTarget::Var(s) => Expr::Var(s.to_owned()),
+            tree::RefTarget::Collection(collection) => Expr::from(collection),
+            tree::RefTarget::ExprCall(call) => Expr::from(call),
+            tree::RefTarget::ArrayCompr(compr) => Expr::from(compr),
+            tree::RefTarget::SetCompr(compr) => Expr::from(compr),
+            tree::RefTarget::ObjectCompr(compr) => Expr::from(compr),
+        }
+    }
+}
+
+impl From<tree::RefArg<'_>> for Expr {
+    fn from(r: tree::RefArg<'_>) -> Expr {
+        match r {
+            tree::RefArg::Scalar(v) => Expr::Scalar(v),
+            tree::RefArg::Var(s) => Expr::Var(s.to_owned()),
+            tree::RefArg::Collection(collection) => Expr::from(collection),
+            tree::RefArg::Anon => todo!(),
+        }
+    }
+}
+
+impl From<tree::Collection<'_>> for Expr {
+    fn from(collection: tree::Collection<'_>) -> Self {
+        let collection = match collection {
+            tree::Collection::Array(items) => {
+                Collection::Array(items.into_iter().map(Expr::from).collect())
+            }
+            tree::Collection::Set(items) => {
+                Collection::Set(items.into_iter().map(Expr::from).collect())
+            }
+            tree::Collection::Object(items) => Collection::Object(
+                items
+                    .into_iter()
+                    .map(|(k, v)| (Expr::from(k), Expr::from(v)))
+                    .collect(),
+            ),
+        };
+        Expr::Collection(collection)
+    }
+}
+
+impl From<tree::ExprCall<'_>> for Expr {
+    fn from(call: tree::ExprCall<'_>) -> Self {
+        let (target, args) = call.into_parts();
+        let target = Expr::from(target);
+        let mut args = args.into_iter().map(Expr::from).collect();
+        let mut items = Vec::new();
+        items.push(target);
+        items.append(&mut args);
+        // TODO fix this
+        Expr::Call("hello".to_string(), items)
+    }
+}
+
+impl From<tree::ArrayCompr<'_>> for Expr {
+    fn from(compr: tree::ArrayCompr<'_>) -> Self {
+        let (term, body) = compr.into_parts();
+        Expr::Comprehension(Comprehension::Array(
+            Box::new(Expr::from(term)),
+            Box::new(Expr::from(body)),
+        ))
+    }
+}
+
+impl From<tree::SetCompr<'_>> for Expr {
+    fn from(compr: tree::SetCompr<'_>) -> Self {
+        let (term, body) = compr.into_parts();
+        Expr::Comprehension(Comprehension::Set(
+            Box::new(Expr::from(term)),
+            Box::new(Expr::from(body)),
+        ))
+    }
+}
+
+impl From<tree::ObjectCompr<'_>> for Expr {
+    fn from(compr: tree::ObjectCompr<'_>) -> Self {
+        let ((key, value), body) = compr.into_parts();
+        Expr::Comprehension(Comprehension::Object(
+            Box::new((Expr::from(key), Expr::from(value))),
+            Box::new(Expr::from(body)),
+        ))
+    }
+}
+
+impl From<tree::Query<'_>> for Expr {
+    fn from(query: tree::Query<'_>) -> Self {
+        query
+            .into_statements()
+            .into_iter()
+            .fold(Expr::Scalar(Value::Bool(true)), |acc, s| {
+                let (target, _with) = s.into_parts();
+                let e = match target {
+                    tree::StatementTarget::Expr(t) => Expr::from(t),
+                    tree::StatementTarget::NotExpr(t) => Expr::Not(Box::new(Expr::from(t))),
+                    tree::StatementTarget::Some(v) => {
+                        Expr::Some(v.into_iter().map(|s| s.to_owned()).collect())
+                    }
+                };
+                Expr::BinOp(Box::new(acc), Opcode::And, Box::new(e))
+            })
     }
 }
