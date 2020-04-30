@@ -73,11 +73,22 @@ Comma<T>: Vec<T> = {
     }
 };
 
+Dot<T>: Vec<T> = {
+    <v:(<T> ".")*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            let mut v = v;
+            v.push(e);
+            v
+        }
+    }
+};
+
 pub Module: Module<'input> = Package Import* Rule* => Module::new(<>);
 
 Import: Import<'input> = "import" <Ref> <("as" <Var>)?> ";"+ => Import::new(<>);
 
-Package: Ref<'input> = "package" <Ref> ";"+;
+Package: Vec<&'input str> = "package" <Dot<"id">> ";"+;
 
 Rule: Rule<'input> = {
     "default" <Var> "=" <Term> ";"+ => Rule::Default(DefaultRule::new(<>)),

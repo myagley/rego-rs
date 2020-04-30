@@ -1,5 +1,31 @@
+use std::convert::TryFrom;
+use std::fmt;
+
 use crate::parser::tree;
 use crate::value::Value;
+
+#[derive(Debug, Clone)]
+pub enum Error {
+    MultipleDefaults(String),
+    Unsupported(&'static str),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::MultipleDefaults(s) => write!(f, "multiple default rules named {} found", s),
+            Error::Unsupported(s) => write!(f, "{} are unsupported", s),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            _ => None,
+        }
+    }
+}
 
 pub trait Visitor {
     type Value;
@@ -115,8 +141,20 @@ pub struct Rule {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Module {
-    name: String,
+    package: String,
     rules: Vec<Rule>,
+}
+
+impl TryFrom<tree::Module<'_>> for Module {
+    type Error = Error;
+
+    fn try_from(module: tree::Module<'_>) -> Result<Self, Self::Error> {
+        let (package, imports, rules) = module.into_parts();
+        let package = package.join(".");
+        let rules = Vec::new();
+        let module = Module { package, rules };
+        Ok(module)
+    }
 }
 
 impl From<tree::Opcode> for Opcode {
@@ -140,149 +178,196 @@ impl From<tree::Opcode> for Opcode {
     }
 }
 
-impl From<tree::Term<'_>> for Expr {
-    fn from(term: tree::Term<'_>) -> Self {
-        match term {
+impl TryFrom<tree::Term<'_>> for Expr {
+    type Error = Error;
+
+    fn try_from(term: tree::Term<'_>) -> Result<Self, Self::Error> {
+        let expr = match term {
             tree::Term::BinOp(left, op, right) => Expr::BinOp(
-                Box::new(Expr::from(*left)),
+                Box::new(Expr::try_from(*left)?),
                 op.into(),
-                Box::new(Expr::from(*right)),
+                Box::new(Expr::try_from(*right)?),
             ),
             tree::Term::Scalar(value) => Expr::Scalar(value),
-            tree::Term::Ref(r) => Expr::from(r),
-        }
+            tree::Term::Ref(r) => Expr::try_from(r)?,
+        };
+        Ok(expr)
     }
 }
 
-impl From<tree::Ref<'_>> for Expr {
-    fn from(r: tree::Ref<'_>) -> Self {
+impl TryFrom<tree::Ref<'_>> for Expr {
+    type Error = Error;
+
+    fn try_from(r: tree::Ref<'_>) -> Result<Self, Self::Error> {
         let (target, args) = r.into_parts();
         if args.len() == 0 {
-            Expr::from(*target)
+            Expr::try_from(*target)
         } else {
             let len = args.len() + 1;
-            let target = Expr::from(*target);
-            let mut args = args.into_iter().map(Expr::from).collect();
+            let target = Expr::try_from(*target)?;
+
+            let mut new_args = Vec::with_capacity(len);
+            for arg in args {
+                new_args.push(Expr::try_from(arg)?);
+            }
+
             let mut indexed = Vec::with_capacity(len);
             indexed.push(target);
-            indexed.append(&mut args);
-            Expr::Index(indexed)
+            indexed.append(&mut new_args);
+            Ok(Expr::Index(indexed))
         }
     }
 }
 
-impl From<tree::RefTarget<'_>> for Expr {
-    fn from(r: tree::RefTarget<'_>) -> Expr {
-        match r {
+impl TryFrom<tree::RefTarget<'_>> for Expr {
+    type Error = Error;
+
+    fn try_from(r: tree::RefTarget<'_>) -> Result<Expr, Self::Error> {
+        let expr = match r {
             tree::RefTarget::Var(s) => Expr::Var(s.to_owned()),
-            tree::RefTarget::Collection(collection) => Expr::from(collection),
-            tree::RefTarget::ExprCall(call) => Expr::from(call),
-            tree::RefTarget::ArrayCompr(compr) => Expr::from(compr),
-            tree::RefTarget::SetCompr(compr) => Expr::from(compr),
-            tree::RefTarget::ObjectCompr(compr) => Expr::from(compr),
-        }
+            tree::RefTarget::Collection(collection) => Expr::try_from(collection)?,
+            tree::RefTarget::ExprCall(call) => Expr::try_from(call)?,
+            tree::RefTarget::ArrayCompr(compr) => Expr::try_from(compr)?,
+            tree::RefTarget::SetCompr(compr) => Expr::try_from(compr)?,
+            tree::RefTarget::ObjectCompr(compr) => Expr::try_from(compr)?,
+        };
+        Ok(expr)
     }
 }
 
-impl From<tree::RefArg<'_>> for Expr {
-    fn from(r: tree::RefArg<'_>) -> Expr {
-        match r {
+impl TryFrom<tree::RefArg<'_>> for Expr {
+    type Error = Error;
+
+    fn try_from(r: tree::RefArg<'_>) -> Result<Expr, Self::Error> {
+        let expr = match r {
             tree::RefArg::Scalar(v) => Expr::Scalar(v),
             tree::RefArg::Var(s) => Expr::Var(s.to_owned()),
-            tree::RefArg::Collection(collection) => Expr::from(collection),
-            tree::RefArg::Anon => todo!(),
-        }
+            tree::RefArg::Collection(collection) => Expr::try_from(collection)?,
+            tree::RefArg::Anon => return Err(Error::Unsupported("anonymous variables")),
+        };
+        Ok(expr)
     }
 }
 
-impl From<tree::Collection<'_>> for Expr {
-    fn from(collection: tree::Collection<'_>) -> Self {
+impl TryFrom<tree::Collection<'_>> for Expr {
+    type Error = Error;
+
+    fn try_from(collection: tree::Collection<'_>) -> Result<Self, Self::Error> {
         let collection = match collection {
             tree::Collection::Array(items) => {
-                Collection::Array(items.into_iter().map(Expr::from).collect())
+                let mut new_items = Vec::with_capacity(items.len());
+                for item in items {
+                    new_items.push(Expr::try_from(item)?);
+                }
+                Collection::Array(new_items)
             }
             tree::Collection::Set(items) => {
-                Collection::Set(items.into_iter().map(Expr::from).collect())
+                let mut new_items = Vec::with_capacity(items.len());
+                for item in items {
+                    new_items.push(Expr::try_from(item)?);
+                }
+                Collection::Set(new_items)
             }
-            tree::Collection::Object(items) => Collection::Object(
-                items
-                    .into_iter()
-                    .map(|(k, v)| (Expr::from(k), Expr::from(v)))
-                    .collect(),
-            ),
+            tree::Collection::Object(items) => {
+                let mut new_items = Vec::with_capacity(items.len());
+                for (key, val) in items {
+                    new_items.push((Expr::try_from(key)?, Expr::try_from(val)?));
+                }
+                Collection::Object(new_items)
+            }
         };
-        Expr::Collection(collection)
+        Ok(Expr::Collection(collection))
     }
 }
 
-impl From<tree::ExprCall<'_>> for Expr {
-    fn from(call: tree::ExprCall<'_>) -> Self {
+impl TryFrom<tree::ExprCall<'_>> for Expr {
+    type Error = Error;
+
+    fn try_from(call: tree::ExprCall<'_>) -> Result<Self, Self::Error> {
         let (target, args) = call.into_parts();
-        let target = Expr::from(target);
-        let mut args = args.into_iter().map(Expr::from).collect();
+        let target = Expr::try_from(target)?;
+        let mut new_args = Vec::with_capacity(args.len());
+        for arg in args {
+            new_args.push(Expr::try_from(arg)?);
+        }
         let mut items = Vec::new();
         items.push(target);
-        items.append(&mut args);
+        items.append(&mut new_args);
         // TODO fix this
-        Expr::Call("hello".to_string(), items)
+        Ok(Expr::Call("hello".to_string(), items))
     }
 }
 
-impl From<tree::ArrayCompr<'_>> for Expr {
-    fn from(compr: tree::ArrayCompr<'_>) -> Self {
+impl TryFrom<tree::ArrayCompr<'_>> for Expr {
+    type Error = Error;
+
+    fn try_from(compr: tree::ArrayCompr<'_>) -> Result<Self, Self::Error> {
         let (term, body) = compr.into_parts();
-        Expr::Comprehension(Comprehension::Array(
-            Box::new(Expr::from(term)),
-            Box::new(Expr::from(body)),
-        ))
+        Ok(Expr::Comprehension(Comprehension::Array(
+            Box::new(Expr::try_from(term)?),
+            Box::new(Expr::try_from(body)?),
+        )))
     }
 }
 
-impl From<tree::SetCompr<'_>> for Expr {
-    fn from(compr: tree::SetCompr<'_>) -> Self {
+impl TryFrom<tree::SetCompr<'_>> for Expr {
+    type Error = Error;
+
+    fn try_from(compr: tree::SetCompr<'_>) -> Result<Self, Self::Error> {
         let (term, body) = compr.into_parts();
-        Expr::Comprehension(Comprehension::Set(
-            Box::new(Expr::from(term)),
-            Box::new(Expr::from(body)),
-        ))
+        Ok(Expr::Comprehension(Comprehension::Set(
+            Box::new(Expr::try_from(term)?),
+            Box::new(Expr::try_from(body)?),
+        )))
     }
 }
 
-impl From<tree::ObjectCompr<'_>> for Expr {
-    fn from(compr: tree::ObjectCompr<'_>) -> Self {
+impl TryFrom<tree::ObjectCompr<'_>> for Expr {
+    type Error = Error;
+
+    fn try_from(compr: tree::ObjectCompr<'_>) -> Result<Self, Error> {
         let ((key, value), body) = compr.into_parts();
-        Expr::Comprehension(Comprehension::Object(
-            Box::new((Expr::from(key), Expr::from(value))),
-            Box::new(Expr::from(body)),
-        ))
+        Ok(Expr::Comprehension(Comprehension::Object(
+            Box::new((Expr::try_from(key)?, Expr::try_from(value)?)),
+            Box::new(Expr::try_from(body)?),
+        )))
     }
 }
 
-impl From<tree::Query<'_>> for Expr {
-    fn from(query: tree::Query<'_>) -> Self {
+impl TryFrom<tree::Query<'_>> for Expr {
+    type Error = Error;
+
+    fn try_from(query: tree::Query<'_>) -> Result<Self, Self::Error> {
         let statements = query.into_statements();
         if statements.len() > 0 {
             let mut statements = statements.into_iter();
             let head = statements.next().expect("len > 0");
-            statements.fold(Expr::from(head), |acc, s| {
-                Expr::BinOp(Box::new(acc), Opcode::And, Box::new(Expr::from(s)))
+            statements.fold(Expr::try_from(head), |acc, s| match acc {
+                Ok(acc) => Ok(Expr::BinOp(
+                    Box::new(acc),
+                    Opcode::And,
+                    Box::new(Expr::try_from(s)?),
+                )),
+                e => e,
             })
         } else {
-            Expr::Scalar(Value::Bool(true))
+            Ok(Expr::Scalar(Value::Bool(true)))
         }
     }
 }
 
-impl From<tree::Statement<'_>> for Expr {
-    fn from(statement: tree::Statement<'_>) -> Self {
+impl TryFrom<tree::Statement<'_>> for Expr {
+    type Error = Error;
+
+    fn try_from(statement: tree::Statement<'_>) -> Result<Self, Self::Error> {
         let (target, _with) = statement.into_parts();
         let e = match target {
-            tree::StatementTarget::Expr(t) => Expr::from(t),
-            tree::StatementTarget::NotExpr(t) => Expr::Not(Box::new(Expr::from(t))),
+            tree::StatementTarget::Expr(t) => Expr::try_from(t)?,
+            tree::StatementTarget::NotExpr(t) => Expr::Not(Box::new(Expr::try_from(t)?)),
             tree::StatementTarget::Some(v) => {
                 Expr::Some(v.into_iter().map(|s| s.to_owned()).collect())
             }
         };
-        e
+        Ok(e)
     }
 }

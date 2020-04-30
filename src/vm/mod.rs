@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::fmt;
 use std::sync::Arc;
 
@@ -133,7 +134,7 @@ pub struct CompiledQuery {
 
 impl CompiledQuery {
     pub fn from_query(query: Query<'_>) -> Result<Self, Error> {
-        let expr = Expr::from(query);
+        let expr = Expr::try_from(query).unwrap();
         let mut compiler = Compiler::new();
         expr.accept(&mut compiler)?;
 

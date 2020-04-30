@@ -2,14 +2,14 @@ use crate::value::Value;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Module<'input> {
-    package: Ref<'input>,
+    package: Vec<&'input str>,
     imports: Vec<Import<'input>>,
     rules: Vec<Rule<'input>>,
 }
 
 impl<'input> Module<'input> {
     pub fn new(
-        package: Ref<'input>,
+        package: Vec<&'input str>,
         imports: Vec<Import<'input>>,
         rules: Vec<Rule<'input>>,
     ) -> Self {
@@ -18,6 +18,10 @@ impl<'input> Module<'input> {
             imports,
             rules,
         }
+    }
+
+    pub fn into_parts(self) -> (Vec<&'input str>, Vec<Import<'input>>, Vec<Rule<'input>>) {
+        (self.package, self.imports, self.rules)
     }
 }
 
