@@ -93,14 +93,11 @@ pub struct CompiledQuery {
 
 impl CompiledQuery {
     pub fn eval(&self, input: Value) -> Result<Option<Value>, Error> {
-        let mut map = Map::new();
-        map.insert(Value::String("input".to_string()), input);
-
         let mut instance = Instance {
             instructions: self.instructions.clone(),
             value_stack: Vec::with_capacity(10),
             heap: Arena::new(),
-            data: Value::Object(map),
+            input,
         };
         instance.eval()
     }
@@ -110,7 +107,7 @@ struct Instance<'m> {
     instructions: Arc<Vec<Instruction>>,
     value_stack: Vec<&'m Value>,
     heap: Arena<Value>,
-    data: Value,
+    input: Value,
 }
 
 impl<'a> Instance<'a> {
@@ -179,7 +176,7 @@ impl<'a> Instance<'a> {
                     self.value_stack.push(result);
                 }
                 LoadGlobal => {
-                    self.value_stack.push(&self.data);
+                    self.value_stack.push(&self.input);
                 }
             }
             pc += 1
@@ -244,7 +241,7 @@ impl<'input> Visitor<'input> for &mut Compiler {
 
     fn visit_ref_target(self, target: &RefTarget<'input>) -> Result<Self::Value, Self::Error> {
         match target {
-            RefTarget::Var(s) if s == &"data" => self.instructions.push(Instruction::LoadGlobal),
+            RefTarget::Var(s) if s == &"input" => self.instructions.push(Instruction::LoadGlobal),
             RefTarget::Collection(c) => c.accept(&mut *self)?,
             _ => todo!(),
         }
@@ -459,7 +456,7 @@ mod tests {
 
     #[test]
     fn test_data_input() {
-        let query = "data.input.a == 3";
+        let query = "input.a == 3";
         let term = parse_expr(&query).unwrap();
         let mut compiler = Compiler::new();
         term.accept(&mut compiler).unwrap();
