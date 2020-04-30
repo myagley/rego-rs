@@ -260,19 +260,29 @@ impl From<tree::ObjectCompr<'_>> for Expr {
 
 impl From<tree::Query<'_>> for Expr {
     fn from(query: tree::Query<'_>) -> Self {
-        query
-            .into_statements()
-            .into_iter()
-            .fold(Expr::Scalar(Value::Bool(true)), |acc, s| {
-                let (target, _with) = s.into_parts();
-                let e = match target {
-                    tree::StatementTarget::Expr(t) => Expr::from(t),
-                    tree::StatementTarget::NotExpr(t) => Expr::Not(Box::new(Expr::from(t))),
-                    tree::StatementTarget::Some(v) => {
-                        Expr::Some(v.into_iter().map(|s| s.to_owned()).collect())
-                    }
-                };
-                Expr::BinOp(Box::new(acc), Opcode::And, Box::new(e))
+        let statements = query.into_statements();
+        if statements.len() > 0 {
+            let mut statements = statements.into_iter();
+            let head = statements.next().expect("len > 0");
+            statements.fold(Expr::from(head), |acc, s| {
+                Expr::BinOp(Box::new(acc), Opcode::And, Box::new(Expr::from(s)))
             })
+        } else {
+            Expr::Scalar(Value::Bool(true))
+        }
+    }
+}
+
+impl From<tree::Statement<'_>> for Expr {
+    fn from(statement: tree::Statement<'_>) -> Self {
+        let (target, _with) = statement.into_parts();
+        let e = match target {
+            tree::StatementTarget::Expr(t) => Expr::from(t),
+            tree::StatementTarget::NotExpr(t) => Expr::Not(Box::new(Expr::from(t))),
+            tree::StatementTarget::Some(v) => {
+                Expr::Some(v.into_iter().map(|s| s.to_owned()).collect())
+            }
+        };
+        e
     }
 }

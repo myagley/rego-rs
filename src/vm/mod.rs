@@ -4,7 +4,7 @@ use std::sync::Arc;
 use typed_arena::Arena;
 
 use crate::ast::*;
-use crate::parser::tree::Term;
+use crate::parser::tree::Query;
 use crate::value::{Map, Set, Value};
 
 static UNDEFINED: Value = Value::Undefined;
@@ -132,8 +132,8 @@ pub struct CompiledQuery {
 }
 
 impl CompiledQuery {
-    pub fn from_term(term: Term<'_>) -> Result<Self, Error> {
-        let expr = Expr::from(term);
+    pub fn from_query(query: Query<'_>) -> Result<Self, Error> {
+        let expr = Expr::from(query);
         let mut compiler = Compiler::new();
         expr.accept(&mut compiler)?;
 
@@ -350,7 +350,7 @@ impl Visitor for &mut Compiler {
 mod tests {
     use super::*;
 
-    use crate::parser::parse_expr;
+    use crate::parser::parse_query;
 
     #[test]
     fn eval() {
@@ -370,8 +370,8 @@ mod tests {
     #[test]
     fn compile() {
         let input = "(3 + 4) == 3";
-        let term = parse_expr(&input).unwrap();
-        let query = CompiledQuery::from_term(term).unwrap();
+        let term = parse_query(&input).unwrap();
+        let query = CompiledQuery::from_query(term).unwrap();
         let result = query.eval(Value::Undefined);
         println!("result: {:?}", result);
     }
@@ -379,8 +379,8 @@ mod tests {
     #[test]
     fn test_array() {
         let input = "[[3, 2], 2, 3]";
-        let term = parse_expr(&input).unwrap();
-        let query = CompiledQuery::from_term(term).unwrap();
+        let term = parse_query(&input).unwrap();
+        let query = CompiledQuery::from_query(term).unwrap();
         let result = query
             .eval(Value::Undefined)
             .unwrap()
@@ -398,8 +398,8 @@ mod tests {
     #[test]
     fn test_set() {
         let input = "{[3, 2], 2, 3}";
-        let term = parse_expr(&input).unwrap();
-        let query = CompiledQuery::from_term(term).unwrap();
+        let term = parse_query(&input).unwrap();
+        let query = CompiledQuery::from_query(term).unwrap();
         let result = query
             .eval(Value::Undefined)
             .unwrap()
@@ -419,8 +419,8 @@ mod tests {
     #[test]
     fn test_object() {
         let input = "{\"three\": 3, \"two\": 2}";
-        let term = parse_expr(&input).unwrap();
-        let query = CompiledQuery::from_term(term).unwrap();
+        let term = parse_query(&input).unwrap();
+        let query = CompiledQuery::from_query(term).unwrap();
         let result = query
             .eval(Value::Undefined)
             .unwrap()
@@ -436,8 +436,8 @@ mod tests {
     #[test]
     fn test_array_index() {
         let input = "[[3, 2], 2, 3][0][1]";
-        let term = parse_expr(&input).unwrap();
-        let query = CompiledQuery::from_term(term).unwrap();
+        let term = parse_query(&input).unwrap();
+        let query = CompiledQuery::from_query(term).unwrap();
         let result = query.eval(Value::Undefined).unwrap().unwrap();
         let expected = Value::Number(2.into());
         assert_eq!(expected, result);
@@ -446,8 +446,8 @@ mod tests {
     #[test]
     fn test_object_index() {
         let input = "{\"three\": 3, \"two\": 2}[\"three\"]";
-        let term = parse_expr(&input).unwrap();
-        let query = CompiledQuery::from_term(term).unwrap();
+        let term = parse_query(&input).unwrap();
+        let query = CompiledQuery::from_query(term).unwrap();
         let result = query.eval(Value::Undefined).unwrap().unwrap();
         let expected = Value::Number(3.into());
         assert_eq!(expected, result);
@@ -456,8 +456,8 @@ mod tests {
     #[test]
     fn test_data_input() {
         let query = "input.a == 3";
-        let term = parse_expr(&query).unwrap();
-        let query = CompiledQuery::from_term(term).unwrap();
+        let term = parse_query(&query).unwrap();
+        let query = CompiledQuery::from_query(term).unwrap();
         let mut input = Map::new();
         input.insert(Value::String("a".to_string()), Value::Number(3.into()));
         let result = query.eval(Value::Object(input)).unwrap().unwrap();

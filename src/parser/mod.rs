@@ -6,7 +6,7 @@ mod token;
 pub mod tree;
 
 use self::lexer::Error as LexerError;
-use crate::parser::tree::{Module, Query, Term};
+use crate::parser::tree::{Module, Query};
 use crate::Location;
 
 pub use lexer::Lexer;
@@ -24,17 +24,12 @@ pub fn parse_query<'input>(input: &'input str) -> Result<Query<'input>, ParseErr
     grammar::QueryParser::new().parse(input, lexer)
 }
 
-pub fn parse_expr<'input>(input: &'input str) -> Result<Term<'input>, ParseError<'input>> {
-    let lexer = Lexer::new(input);
-    grammar::ExprParser::new().parse(input, lexer)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use crate::ast::*;
     use crate::parser::lexer::Lexer;
+    use crate::parser::tree::*;
 
     #[test]
     fn test_expr_parse() {
