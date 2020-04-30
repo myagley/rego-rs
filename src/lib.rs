@@ -3,6 +3,7 @@ use std::ops::Range;
 
 pub mod ast;
 mod error;
+mod ir;
 pub mod parser;
 mod value;
 mod vm;

@@ -193,6 +193,10 @@ impl<'input> Query<'input> {
     pub fn new(statements: Vec<Statement<'input>>) -> Self {
         Self { statements }
     }
+
+    pub fn into_statements(self) -> Vec<Statement<'input>> {
+        self.statements
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -204,6 +208,10 @@ pub struct Statement<'input> {
 impl<'input> Statement<'input> {
     pub fn new(target: StatementTarget<'input>, with: Vec<With<'input>>) -> Self {
         Self { target, with }
+    }
+
+    pub fn into_parts(self) -> (StatementTarget<'input>, Vec<With<'input>>) {
+        (self.target, self.with)
     }
 }
 
@@ -261,6 +269,10 @@ impl<'input> Ref<'input> {
         &self.args
     }
 
+    pub fn into_parts(self) -> (Box<RefTarget<'input>>, Vec<RefArg<'input>>) {
+        (self.target, self.args)
+    }
+
     pub fn accept<V>(&self, visitor: V) -> Result<V::Value, V::Error>
     where
         V: Visitor<'input>,
@@ -315,6 +327,10 @@ impl<'input> ExprCall<'input> {
     pub fn new(target: Ref<'input>, args: Vec<Term<'input>>) -> Self {
         Self { target, args }
     }
+
+    pub fn into_parts(self) -> (Ref<'input>, Vec<Term<'input>>) {
+        (self.target, self.args)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -343,6 +359,10 @@ impl<'input> ArrayCompr<'input> {
     pub fn new(term: Term<'input>, body: Query<'input>) -> Self {
         Self { term, body }
     }
+
+    pub fn into_parts(self) -> (Term<'input>, Query<'input>) {
+        (self.term, self.body)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -355,6 +375,10 @@ impl<'input> SetCompr<'input> {
     pub fn new(term: Term<'input>, body: Query<'input>) -> Self {
         Self { term, body }
     }
+
+    pub fn into_parts(self) -> (Term<'input>, Query<'input>) {
+        (self.term, self.body)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -366,6 +390,10 @@ pub struct ObjectCompr<'input> {
 impl<'input> ObjectCompr<'input> {
     pub fn new(item: (Term<'input>, Term<'input>), body: Query<'input>) -> Self {
         Self { item, body }
+    }
+
+    pub fn into_parts(self) -> ((Term<'input>, Term<'input>), Query<'input>) {
+        (self.item, self.body)
     }
 }
 
