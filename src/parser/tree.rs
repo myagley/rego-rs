@@ -46,6 +46,18 @@ pub enum Rule<'input> {
     Function(FunctionRule<'input>),
 }
 
+impl<'input> Rule<'input> {
+    pub fn name(&self) -> &'input str {
+        match self {
+            Rule::Default(d) => d.name,
+            Rule::Complete(c) => c.name,
+            Rule::Set(s) => s.name,
+            Rule::Object(o) => o.name,
+            Rule::Function(f) => f.name,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefaultRule<'input> {
     name: &'input str,
@@ -55,6 +67,10 @@ pub struct DefaultRule<'input> {
 impl<'input> DefaultRule<'input> {
     pub fn new(name: &'input str, term: Term<'input>) -> Self {
         Self { name, term }
+    }
+
+    pub fn into_term(self) -> Term<'input> {
+        self.term
     }
 }
 
@@ -73,6 +89,10 @@ impl<'input> CompleteRule<'input> {
     ) -> Self {
         Self { name, value, body }
     }
+
+    pub fn into_parts(self) -> (Option<Term<'input>>, Option<RuleBody<'input>>) {
+        (self.value, self.body)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -85,6 +105,10 @@ pub struct SetRule<'input> {
 impl<'input> SetRule<'input> {
     pub fn new(name: &'input str, key: Term<'input>, body: Option<RuleBody<'input>>) -> Self {
         Self { name, key, body }
+    }
+
+    pub fn into_parts(self) -> (Term<'input>, Option<RuleBody<'input>>) {
+        (self.key, self.body)
     }
 }
 
@@ -110,6 +134,10 @@ impl<'input> ObjectRule<'input> {
             body,
         }
     }
+
+    pub fn into_parts(self) -> (Term<'input>, Term<'input>, Option<RuleBody<'input>>) {
+        (self.key, self.value, self.body)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -134,6 +162,10 @@ impl<'input> FunctionRule<'input> {
             body,
         }
     }
+
+    pub fn into_parts(self) -> (Vec<Term<'input>>, Term<'input>, Option<RuleBody<'input>>) {
+        (self.args, self.value, self.body)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -145,6 +177,10 @@ pub struct RuleBody<'input> {
 impl<'input> RuleBody<'input> {
     pub fn new(head: Query<'input>, tail: Vec<RuleBodyTail<'input>>) -> Self {
         RuleBody { head, tail }
+    }
+
+    pub fn into_parts(self) -> (Query<'input>, Vec<RuleBodyTail<'input>>) {
+        (self.head, self.tail)
     }
 }
 
@@ -158,6 +194,10 @@ impl<'input> RuleBodyTail<'input> {
     pub fn new(else_clause: Option<ElseClause<'input>>, query: Query<'input>) -> Self {
         Self { else_clause, query }
     }
+
+    pub fn into_parts(self) -> (Option<ElseClause<'input>>, Query<'input>) {
+        (self.else_clause, self.query)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -168,6 +208,10 @@ pub struct ElseClause<'input> {
 impl<'input> ElseClause<'input> {
     pub fn new(term: Option<Term<'input>>) -> Self {
         Self { term }
+    }
+
+    pub fn into_term(self) -> Option<Term<'input>> {
+        self.term
     }
 }
 

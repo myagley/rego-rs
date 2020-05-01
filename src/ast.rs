@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt;
 
@@ -6,6 +7,7 @@ use crate::value::Value;
 
 #[derive(Debug, Clone)]
 pub enum Error {
+    ConflictingRules(String),
     MultipleDefaults(String),
     Unsupported(&'static str),
 }
@@ -13,6 +15,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Error::ConflictingRules(s) => write!(f, "conflicting rules found for {}", s),
             Error::MultipleDefaults(s) => write!(f, "multiple default rules named {} found", s),
             Error::Unsupported(s) => write!(f, "{} are unsupported", s),
         }
@@ -127,8 +130,8 @@ impl Expr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Clause {
-    value: Expr,
     body: Expr,
+    value: Expr,
     is_else: bool,
 }
 
@@ -136,7 +139,17 @@ pub struct Clause {
 pub struct Rule {
     name: String,
     default: Option<Expr>,
-    value: Vec<Clause>,
+    head: RuleHead,
+    clauses: Vec<Clause>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RuleHead {
+    None,
+    Complete(Expr),
+    Set(Expr),
+    Object(Expr, Expr),
+    Function(Vec<Expr>, Expr),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -145,16 +158,170 @@ pub struct Module {
     rules: Vec<Rule>,
 }
 
-impl TryFrom<tree::Module<'_>> for Module {
+impl<'a> TryFrom<tree::Module<'a>> for Module {
     type Error = Error;
 
-    fn try_from(module: tree::Module<'_>) -> Result<Self, Self::Error> {
+    fn try_from(module: tree::Module<'a>) -> Result<Self, Self::Error> {
         let (package, imports, rules) = module.into_parts();
         let package = package.join(".");
-        let rules = Vec::new();
+
+        let rules: Vec<Rule> = rules
+            .into_iter()
+            .fold(HashMap::new(), |mut acc, r| {
+                acc.entry(r.name()).or_insert_with(|| Vec::new()).push(r);
+                acc
+            })
+            .iter()
+            .map(|(name, rules)| {
+                let default = extract_default(&rules)?
+                    .map(|default| Expr::try_from(default.into_term()))
+                    .transpose()?;
+
+                let mut rules = rules
+                    .into_iter()
+                    .filter(|r| !matches!(r, tree::Rule::Default(_)));
+                let rule = if let Some(first) = rules.next() {
+                    let mut clauses = Vec::new();
+                    let (head, mut next_clauses) =
+                        <(RuleHead, Vec<Clause>)>::try_from(first.clone())?;
+                    clauses.append(&mut next_clauses);
+
+                    for rule in rules.into_iter() {
+                        let (next_head, mut next_clauses) =
+                            <(RuleHead, Vec<Clause>)>::try_from(rule.clone())?;
+                        if next_head != head {
+                            return Err(Error::ConflictingRules(name.to_string()));
+                        }
+                        clauses.append(&mut next_clauses);
+                    }
+                    Rule {
+                        name: format!("{}.{}", &package, name.to_string()),
+                        default,
+                        head,
+                        clauses,
+                    }
+                } else {
+                    Rule {
+                        name: format!("{}.{}", &package, name),
+                        default,
+                        head: RuleHead::None,
+                        clauses: Vec::new(),
+                    }
+                };
+                Ok(rule)
+            })
+            .collect::<Result<Vec<Rule>, Self::Error>>()?;
+
         let module = Module { package, rules };
         Ok(module)
     }
+}
+
+impl TryFrom<tree::Rule<'_>> for (RuleHead, Vec<Clause>) {
+    type Error = Error;
+
+    fn try_from(rule: tree::Rule<'_>) -> Result<Self, Self::Error> {
+        let result = match rule {
+            tree::Rule::Complete(complete) => {
+                let (value, body) = complete.into_parts();
+                let expr = value
+                    .map(Expr::try_from)
+                    .unwrap_or_else(|| Ok(Expr::Scalar(Value::Bool(true))))?;
+                let clauses = body
+                    .map(Vec::<Clause>::try_from)
+                    .transpose()?
+                    .unwrap_or_else(|| Vec::new());
+                (RuleHead::Complete(expr), clauses)
+            }
+            tree::Rule::Set(set) => {
+                let (key, body) = set.into_parts();
+                let expr = Expr::try_from(key)?;
+                let clauses = body
+                    .map(Vec::<Clause>::try_from)
+                    .transpose()?
+                    .unwrap_or_else(|| Vec::new());
+                (RuleHead::Set(expr), clauses)
+            }
+            tree::Rule::Object(obj) => {
+                let (key, value, body) = obj.into_parts();
+                let key = Expr::try_from(key)?;
+                let value = Expr::try_from(value)?;
+                let clauses = body
+                    .map(Vec::<Clause>::try_from)
+                    .transpose()?
+                    .unwrap_or_else(|| Vec::new());
+                (RuleHead::Object(key, value), clauses)
+            }
+            tree::Rule::Function(function) => {
+                let (args, value, body) = function.into_parts();
+                let args = args
+                    .into_iter()
+                    .map(Expr::try_from)
+                    .collect::<Result<Vec<Expr>, Error>>()?;
+                let value = Expr::try_from(value)?;
+                let clauses = body
+                    .map(Vec::<Clause>::try_from)
+                    .transpose()?
+                    .unwrap_or_else(|| Vec::new());
+                (RuleHead::Function(args, value), clauses)
+            }
+            _ => (RuleHead::None, Vec::new()),
+        };
+        Ok(result)
+    }
+}
+
+impl TryFrom<tree::RuleBody<'_>> for Vec<Clause> {
+    type Error = Error;
+
+    fn try_from(body: tree::RuleBody<'_>) -> Result<Self, Self::Error> {
+        let (query, tail) = body.into_parts();
+        let body = Expr::try_from(query)?;
+        let clause = Clause {
+            body,
+            value: Expr::Scalar(Value::Bool(true)),
+            is_else: false,
+        };
+        let mut clauses = vec![clause];
+        let mut tail = tail
+            .into_iter()
+            .map(Clause::try_from)
+            .collect::<Result<Vec<Clause>, Error>>()?;
+        clauses.append(&mut tail);
+        Ok(clauses)
+    }
+}
+
+impl TryFrom<tree::RuleBodyTail<'_>> for Clause {
+    type Error = Error;
+
+    fn try_from(body: tree::RuleBodyTail<'_>) -> Result<Self, Self::Error> {
+        let (maybe_else, query) = body.into_parts();
+        let (is_else, value) = maybe_else
+            .and_then(|e| e.into_term().map(|t| Ok((true, Expr::try_from(t)?))))
+            .transpose()?
+            .unwrap_or_else(|| (false, Expr::Scalar(Value::Bool(true))));
+        let body = Expr::try_from(query)?;
+        let clause = Clause {
+            body,
+            value,
+            is_else,
+        };
+        Ok(clause)
+    }
+}
+
+fn extract_default<'a>(
+    rules: &Vec<tree::Rule<'a>>,
+) -> Result<Option<tree::DefaultRule<'a>>, Error> {
+    let default = rules
+        .iter()
+        .filter_map(|r| match r {
+            tree::Rule::Default(d) => Some(d.clone()),
+            _ => None,
+        })
+        .next();
+    Ok(default)
 }
 
 impl From<tree::Opcode> for Opcode {
