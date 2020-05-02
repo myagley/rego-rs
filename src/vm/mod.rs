@@ -8,6 +8,8 @@ use crate::ast::*;
 use crate::parser::tree::Query;
 use crate::value::{Map, Set, Value};
 
+mod const_eval;
+
 static UNDEFINED: Value = Value::Undefined;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -247,39 +249,8 @@ impl Compiler {
             instructions: Vec::new(),
         }
     }
-}
 
-impl Visitor for &mut Compiler {
-    type Value = ();
-    type Error = Error;
-
-    fn visit_expr(self, expr: &Expr) -> Result<Self::Value, Self::Error> {
-        match expr {
-            Expr::Scalar(value) => self.instructions.push(Instruction::Const(value.clone())),
-            Expr::Collection(collection) => collection.accept(&mut *self)?,
-            Expr::Comprehension(compr) => compr.accept(&mut *self)?,
-            Expr::Var(ref s) if s == &"input" => self.instructions.push(Instruction::LoadGlobal),
-            Expr::BinOp(left, op, right) => {
-                left.accept(&mut *self)?;
-                right.accept(&mut *self)?;
-                op.accept(&mut *self)?;
-            }
-            Expr::Index(refs) => {
-                let mut iter = refs.iter();
-                if let Some(head) = iter.next() {
-                    head.accept(&mut *self)?;
-                    for next in iter {
-                        next.accept(&mut *self)?;
-                        self.instructions.push(Instruction::Index);
-                    }
-                }
-            }
-            _ => todo!(),
-        }
-        Ok(())
-    }
-
-    fn visit_opcode(self, opcode: &Opcode) -> Result<Self::Value, Self::Error> {
+    fn push_op(&mut self, opcode: Opcode) {
         match opcode {
             Opcode::Add => self.instructions.push(Instruction::BinOp(BinOp::Add)),
             Opcode::Sub => self.instructions.push(Instruction::BinOp(BinOp::Sub)),
@@ -293,16 +264,46 @@ impl Visitor for &mut Compiler {
             Opcode::Ne => self.instructions.push(Instruction::BinOp(BinOp::Ne)),
             _ => todo!(),
         }
+    }
+}
+
+impl Visitor for &mut Compiler {
+    type Value = ();
+    type Error = Error;
+
+    fn visit_expr(self, expr: Expr) -> Result<Self::Value, Self::Error> {
+        match expr {
+            Expr::Scalar(value) => self.instructions.push(Instruction::Const(value)),
+            Expr::Collection(collection) => collection.accept(&mut *self)?,
+            Expr::Comprehension(compr) => compr.accept(&mut *self)?,
+            Expr::Var(ref s) if s == &"input" => self.instructions.push(Instruction::LoadGlobal),
+            Expr::BinOp(left, op, right) => {
+                left.accept(&mut *self)?;
+                right.accept(&mut *self)?;
+                self.push_op(op);
+            }
+            Expr::Index(refs) => {
+                let mut iter = refs.into_iter();
+                if let Some(head) = iter.next() {
+                    head.accept(&mut *self)?;
+                    for next in iter {
+                        next.accept(&mut *self)?;
+                        self.instructions.push(Instruction::Index);
+                    }
+                }
+            }
+            _ => todo!(),
+        }
         Ok(())
     }
 
-    fn visit_collection(self, collection: &Collection) -> Result<Self::Value, Self::Error> {
+    fn visit_collection(self, collection: Collection) -> Result<Self::Value, Self::Error> {
         match collection {
             Collection::Array(array) => {
                 let len = array.len();
 
                 // push the terms
-                for term in array.iter().rev() {
+                for term in array.into_iter().rev() {
                     term.accept(&mut *self)?;
                 }
 
@@ -341,7 +342,7 @@ impl Visitor for &mut Compiler {
 
     fn visit_comprehension(
         self,
-        _comprehension: &Comprehension,
+        _comprehension: Comprehension,
     ) -> Result<Self::Value, Self::Error> {
         Ok(())
     }
@@ -373,6 +374,7 @@ mod tests {
         let input = "(3 + 4) == 3";
         let term = parse_query(&input).unwrap();
         let query = CompiledQuery::from_query(term).unwrap();
+        println!("{}", query);
         let result = query.eval(Value::Undefined);
         println!("result: {:?}", result);
     }
@@ -382,6 +384,7 @@ mod tests {
         let input = "[[3, 2], 2, 3]";
         let term = parse_query(&input).unwrap();
         let query = CompiledQuery::from_query(term).unwrap();
+        println!("{}", query);
         let result = query
             .eval(Value::Undefined)
             .unwrap()
@@ -401,6 +404,7 @@ mod tests {
         let input = "{[3, 2], 2, 3}";
         let term = parse_query(&input).unwrap();
         let query = CompiledQuery::from_query(term).unwrap();
+        println!("{}", query);
         let result = query
             .eval(Value::Undefined)
             .unwrap()
@@ -422,6 +426,7 @@ mod tests {
         let input = "{\"three\": 3, \"two\": 2}";
         let term = parse_query(&input).unwrap();
         let query = CompiledQuery::from_query(term).unwrap();
+        println!("{}", query);
         let result = query
             .eval(Value::Undefined)
             .unwrap()
