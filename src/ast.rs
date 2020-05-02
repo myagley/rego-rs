@@ -5,7 +5,7 @@ use std::fmt;
 use crate::parser::tree;
 use crate::value::Value;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Error {
     ConflictingRules(String),
     MultipleDefaults(String),
@@ -154,7 +154,7 @@ pub enum RuleHead {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Module {
-    package: String,
+    package: Vec<String>,
     rules: Vec<Rule>,
 }
 
@@ -162,8 +162,8 @@ impl<'a> TryFrom<tree::Module<'a>> for Module {
     type Error = Error;
 
     fn try_from(module: tree::Module<'a>) -> Result<Self, Self::Error> {
-        let (package, imports, rules) = module.into_parts();
-        let package = package.join(".");
+        let (package, _imports, rules) = module.into_parts();
+        let package = package.iter().map(|s| s.to_string()).collect();
 
         let rules: Vec<Rule> = rules
             .into_iter()
@@ -189,20 +189,20 @@ impl<'a> TryFrom<tree::Module<'a>> for Module {
                     for rule in rules.into_iter() {
                         let (next_head, mut next_clauses) =
                             <(RuleHead, Vec<Clause>)>::try_from(rule.clone())?;
-                        if next_head != head {
+                        if is_conflicting(&next_head, &head) {
                             return Err(Error::ConflictingRules(name.to_string()));
                         }
                         clauses.append(&mut next_clauses);
                     }
                     Rule {
-                        name: format!("{}.{}", &package, name.to_string()),
+                        name: name.to_string(),
                         default,
                         head,
                         clauses,
                     }
                 } else {
                     Rule {
-                        name: format!("{}.{}", &package, name),
+                        name: name.to_string(),
                         default,
                         head: RuleHead::None,
                         clauses: Vec::new(),
@@ -322,6 +322,16 @@ fn extract_default<'a>(
         })
         .next();
     Ok(default)
+}
+
+fn is_conflicting(left: &RuleHead, right: &RuleHead) -> bool {
+    match (left, right) {
+        (RuleHead::Complete(a), RuleHead::Complete(b)) if a == b => false,
+        (RuleHead::Set(_), RuleHead::Set(_)) => false,
+        (RuleHead::Object(_, _), RuleHead::Object(_, _)) => false,
+        (RuleHead::Function(_, _), RuleHead::Function(_, _)) => false,
+        _ => true,
+    }
 }
 
 impl From<tree::Opcode> for Opcode {
@@ -536,5 +546,54 @@ impl TryFrom<tree::Statement<'_>> for Expr {
             }
         };
         Ok(e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::parser::parse_module;
+
+    #[test]
+    fn test_convert_module() {
+        let input = r###"
+        package opa.examples
+        import data.servers
+
+        violations[blah] { true }
+
+        violations[server] {
+            # ...the server exists
+            server = servers[i]
+            # ...and any of the server's protocols is HTTP
+            server.protocols[j] = "http"
+            # ...and the server is public.
+            public_servers[server]
+        }
+        "###;
+        let module = parse_module(input).unwrap();
+        let module = Module::try_from(module).unwrap();
+        println!("{:?}", module);
+    }
+
+    #[test]
+    fn test_conflicting() {
+        let cases = [
+            (
+                "package test; complete = 4; complete = 5;",
+                Error::ConflictingRules("complete".to_string()),
+            ),
+            (
+                "package test; complete[key] = 4 { true }; complete[key] { true };",
+                Error::ConflictingRules("complete".to_string()),
+            ),
+        ];
+
+        for (input, expected_err) in &cases {
+            let module = parse_module(input).unwrap();
+            let error = Module::try_from(module).unwrap_err();
+            assert_eq!(expected_err, &error);
+        }
     }
 }
