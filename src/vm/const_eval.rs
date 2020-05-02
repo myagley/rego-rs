@@ -98,7 +98,10 @@ impl Visitor for &ConstEval {
                     .into_iter()
                     .map(|(key, val)| Ok((key.accept(&*self)?, val.accept(&*self)?)))
                     .collect::<Result<Vec<(Expr, Expr)>, Self::Error>>()?;
-                if obj.iter().all(|(k, v)| matches!(k, Expr::Scalar(_)) && matches!(v, Expr::Scalar(_))) {
+                if obj
+                    .iter()
+                    .all(|(k, v)| matches!(k, Expr::Scalar(_)) && matches!(v, Expr::Scalar(_)))
+                {
                     let obj = obj
                         .into_iter()
                         .filter_map(|(k, v)| match (k, v) {
