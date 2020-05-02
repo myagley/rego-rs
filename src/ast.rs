@@ -119,23 +119,16 @@ impl Expr {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Body {
-    query: Expr,
-    else_value: Expr,
-    is_else: bool,
+pub struct Rule {
+    name: String,
+    default: Option<Expr>,
+    clauses: Vec<Clause>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Clause {
     head: RuleHead,
-    bodies: Vec<Body>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Rule {
-    name: String,
-    default: Option<Expr>,
-    clauses: Vec<Clause>,
+    body: RuleBody,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -147,21 +140,37 @@ pub enum RuleHead {
     Function(Vec<Expr>, Expr),
 }
 
-impl TryFrom<tree::DefaultRule<'_>> for Clause {
+#[derive(Debug, Clone, PartialEq)]
+pub enum RuleBody {
+    Query(Expr),
+    WithElses(Expr, Vec<Else>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Else {
+    value: Option<Expr>,
+    query: Expr,
+}
+
+impl Else {
+    pub fn new(value: Option<Expr>, query: Expr) -> Self {
+        Self { value, query }
+    }
+}
+
+impl TryFrom<tree::DefaultRule<'_>> for Vec<Clause> {
     type Error = Error;
 
     fn try_from(rule: tree::DefaultRule<'_>) -> Result<Self, Self::Error> {
         let term = rule.into_term();
         let head = RuleHead::Default(Expr::try_from(term)?);
-        let clause = Clause {
-            head,
-            bodies: Vec::new(),
-        };
-        Ok(clause)
+        let body = RuleBody::Query(Expr::Scalar(Value::Bool(true)));
+        let clause = Clause { head, body };
+        Ok(vec![clause])
     }
 }
 
-impl TryFrom<tree::CompleteRule<'_>> for Clause {
+impl TryFrom<tree::CompleteRule<'_>> for Vec<Clause> {
     type Error = Error;
 
     fn try_from(rule: tree::CompleteRule<'_>) -> Result<Self, Self::Error> {
@@ -169,17 +178,24 @@ impl TryFrom<tree::CompleteRule<'_>> for Clause {
         let value = maybe_term
             .map(Expr::try_from)
             .unwrap_or_else(|| Ok(Expr::Scalar(Value::Bool(true))))?;
+
         let head = RuleHead::Complete(value);
         let bodies = maybe_body
-            .map(Vec::<Body>::try_from)
+            .map(Vec::<RuleBody>::try_from)
             .transpose()?
-            .unwrap_or_else(|| Vec::new());
-        let clause = Clause { head, bodies };
-        Ok(clause)
+            .unwrap_or_else(|| vec![RuleBody::Query(Expr::Scalar(Value::Bool(true)))]);
+        let clauses = bodies
+            .into_iter()
+            .map(|body| Clause {
+                head: head.clone(),
+                body,
+            })
+            .collect();
+        Ok(clauses)
     }
 }
 
-impl TryFrom<tree::SetRule<'_>> for Clause {
+impl TryFrom<tree::SetRule<'_>> for Vec<Clause> {
     type Error = Error;
 
     fn try_from(rule: tree::SetRule<'_>) -> Result<Self, Self::Error> {
@@ -187,15 +203,21 @@ impl TryFrom<tree::SetRule<'_>> for Clause {
         let key = Expr::try_from(key)?;
         let head = RuleHead::Set(key);
         let bodies = maybe_body
-            .map(Vec::<Body>::try_from)
+            .map(Vec::<RuleBody>::try_from)
             .transpose()?
-            .unwrap_or_else(|| Vec::new());
-        let clause = Clause { head, bodies };
-        Ok(clause)
+            .unwrap_or_else(|| vec![RuleBody::Query(Expr::Scalar(Value::Bool(true)))]);
+        let clauses = bodies
+            .into_iter()
+            .map(|body| Clause {
+                head: head.clone(),
+                body,
+            })
+            .collect();
+        Ok(clauses)
     }
 }
 
-impl TryFrom<tree::ObjectRule<'_>> for Clause {
+impl TryFrom<tree::ObjectRule<'_>> for Vec<Clause> {
     type Error = Error;
 
     fn try_from(rule: tree::ObjectRule<'_>) -> Result<Self, Self::Error> {
@@ -204,15 +226,21 @@ impl TryFrom<tree::ObjectRule<'_>> for Clause {
         let value = Expr::try_from(value)?;
         let head = RuleHead::Object(key, value);
         let bodies = maybe_body
-            .map(Vec::<Body>::try_from)
+            .map(Vec::<RuleBody>::try_from)
             .transpose()?
-            .unwrap_or_else(|| Vec::new());
-        let clause = Clause { head, bodies };
-        Ok(clause)
+            .unwrap_or_else(|| vec![RuleBody::Query(Expr::Scalar(Value::Bool(true)))]);
+        let clauses = bodies
+            .into_iter()
+            .map(|body| Clause {
+                head: head.clone(),
+                body,
+            })
+            .collect();
+        Ok(clauses)
     }
 }
 
-impl TryFrom<tree::FunctionRule<'_>> for Clause {
+impl TryFrom<tree::FunctionRule<'_>> for Vec<Clause> {
     type Error = Error;
 
     fn try_from(rule: tree::FunctionRule<'_>) -> Result<Self, Self::Error> {
@@ -224,11 +252,17 @@ impl TryFrom<tree::FunctionRule<'_>> for Clause {
         let value = Expr::try_from(value)?;
         let head = RuleHead::Function(args, value);
         let bodies = maybe_body
-            .map(Vec::<Body>::try_from)
+            .map(Vec::<RuleBody>::try_from)
             .transpose()?
-            .unwrap_or_else(|| Vec::new());
-        let clause = Clause { head, bodies };
-        Ok(clause)
+            .unwrap_or_else(|| vec![RuleBody::Query(Expr::Scalar(Value::Bool(true)))]);
+        let clauses = bodies
+            .into_iter()
+            .map(|body| Clause {
+                head: head.clone(),
+                body,
+            })
+            .collect();
+        Ok(clauses)
     }
 }
 
@@ -262,15 +296,18 @@ impl<'a> TryFrom<tree::Module<'a>> for Module {
                     .filter(|r| !matches!(r, tree::Rule::Default(_)))
                     .map(|rule| {
                         let clause = match rule {
-                            tree::Rule::Default(d) => Clause::try_from(d)?,
-                            tree::Rule::Complete(c) => Clause::try_from(c)?,
-                            tree::Rule::Set(s) => Clause::try_from(s)?,
-                            tree::Rule::Object(o) => Clause::try_from(o)?,
-                            tree::Rule::Function(f) => Clause::try_from(f)?,
+                            tree::Rule::Default(d) => Vec::<Clause>::try_from(d)?,
+                            tree::Rule::Complete(c) => Vec::<Clause>::try_from(c)?,
+                            tree::Rule::Set(s) => Vec::<Clause>::try_from(s)?,
+                            tree::Rule::Object(o) => Vec::<Clause>::try_from(o)?,
+                            tree::Rule::Function(f) => Vec::<Clause>::try_from(f)?,
                         };
                         Ok(clause)
                     })
-                    .collect::<Result<Vec<Clause>, Error>>()?;
+                    .collect::<Result<Vec<Vec<Clause>>, Error>>()?
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<Clause>>();
 
                 // Check for conflicting rule heads
                 let mut tocheck = clauses.iter();
@@ -301,43 +338,29 @@ impl<'a> TryFrom<tree::Module<'a>> for Module {
     }
 }
 
-impl TryFrom<tree::RuleBody<'_>> for Vec<Body> {
+impl TryFrom<tree::RuleBody<'_>> for Vec<RuleBody> {
     type Error = Error;
 
     fn try_from(body: tree::RuleBody<'_>) -> Result<Self, Self::Error> {
-        let (query, tail) = body.into_parts();
-        let query = Expr::try_from(query)?;
-        let body = Body {
-            query,
-            else_value: Expr::Scalar(Value::Bool(true)),
-            is_else: false,
-        };
-        let mut bodies = vec![body];
-        let mut tail = tail
-            .into_iter()
-            .map(Body::try_from)
-            .collect::<Result<Vec<Body>, Error>>()?;
-        bodies.append(&mut tail);
-        Ok(bodies)
-    }
-}
-
-impl TryFrom<tree::RuleBodyTail<'_>> for Body {
-    type Error = Error;
-
-    fn try_from(body: tree::RuleBodyTail<'_>) -> Result<Self, Self::Error> {
-        let (maybe_else, query) = body.into_parts();
-        let (is_else, else_value) = maybe_else
-            .and_then(|e| e.into_term().map(|t| Ok((true, Expr::try_from(t)?))))
-            .transpose()?
-            .unwrap_or_else(|| (false, Expr::Scalar(Value::Bool(true))));
-        let query = Expr::try_from(query)?;
-        let body = Body {
-            query,
-            else_value,
-            is_else,
-        };
-        Ok(body)
+        match body {
+            tree::RuleBody::Clauses(queries) => queries
+                .into_iter()
+                .map(|q| Ok(RuleBody::Query(Expr::try_from(q)?)))
+                .collect::<Result<Self, Error>>(),
+            tree::RuleBody::WithElses(query, elses) => {
+                let query = Expr::try_from(query)?;
+                let elses = elses
+                    .into_iter()
+                    .map(|e| {
+                        let (maybe_value, query) = e.into_parts();
+                        let value = maybe_value.map(Expr::try_from).transpose()?;
+                        let query = Expr::try_from(query)?;
+                        Ok(Else::new(value, query))
+                    })
+                    .collect::<Result<Vec<Else>, Error>>()?;
+                Ok(vec![RuleBody::WithElses(query, elses)])
+            }
+        }
     }
 }
 
@@ -591,7 +614,9 @@ mod tests {
         package opa.examples
         import data.servers
 
-        violations[blah] { true }
+        violations[blah] { true } { false }
+
+        test_else { true } else = 3 { true }
 
         violations[server] {
             # ...the server exists

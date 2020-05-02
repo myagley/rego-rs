@@ -99,15 +99,18 @@ Rule: Rule<'input> = {
 };
 
 RuleBody: RuleBody<'input> = {
-    "{" <Query> "}" <RuleBodyTail*> => RuleBody::new(<>),
+    "{" <Query> "}" => RuleBody::Clauses(vec![<>]),
+    "{" <h:Query> "}" <t:("{" <Query> "}")+> => {
+        let mut clauses = vec![h];
+        let mut tail = t;
+        clauses.append(&mut tail);
+        RuleBody::Clauses(clauses)
+    },
+    "{" <Query> "}" <(<ElseClause>)+> => RuleBody::WithElses(<>),
 };
 
-RuleBodyTail: RuleBodyTail<'input> = {
-    <ElseClause?> "{" <Query> "}" => RuleBodyTail::new(<>),
-};
-
-ElseClause: ElseClause<'input> = {
-    "else" <("=" <Term>)?> => ElseClause::new(<>),
+ElseClause: Else<'input> = {
+    "else" <("=" <Term>)?> "{" <Query> "}" => Else::new(<>),
 };
 
 pub Query: Query<'input> = {

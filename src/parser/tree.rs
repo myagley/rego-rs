@@ -169,49 +169,24 @@ impl<'input> FunctionRule<'input> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct RuleBody<'input> {
-    head: Query<'input>,
-    tail: Vec<RuleBodyTail<'input>>,
-}
-
-impl<'input> RuleBody<'input> {
-    pub fn new(head: Query<'input>, tail: Vec<RuleBodyTail<'input>>) -> Self {
-        RuleBody { head, tail }
-    }
-
-    pub fn into_parts(self) -> (Query<'input>, Vec<RuleBodyTail<'input>>) {
-        (self.head, self.tail)
-    }
+pub enum RuleBody<'input> {
+    Clauses(Vec<Query<'input>>),
+    WithElses(Query<'input>, Vec<Else<'input>>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct RuleBodyTail<'input> {
-    else_clause: Option<ElseClause<'input>>,
+pub struct Else<'input> {
+    value: Option<Term<'input>>,
     query: Query<'input>,
 }
 
-impl<'input> RuleBodyTail<'input> {
-    pub fn new(else_clause: Option<ElseClause<'input>>, query: Query<'input>) -> Self {
-        Self { else_clause, query }
+impl<'input> Else<'input> {
+    pub fn new(value: Option<Term<'input>>, query: Query<'input>) -> Self {
+        Self { value, query }
     }
 
-    pub fn into_parts(self) -> (Option<ElseClause<'input>>, Query<'input>) {
-        (self.else_clause, self.query)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ElseClause<'input> {
-    term: Option<Term<'input>>,
-}
-
-impl<'input> ElseClause<'input> {
-    pub fn new(term: Option<Term<'input>>) -> Self {
-        Self { term }
-    }
-
-    pub fn into_term(self) -> Option<Term<'input>> {
-        self.term
+    pub fn into_parts(self) -> (Option<Term<'input>>, Query<'input>) {
+        (self.value, self.query)
     }
 }
 
