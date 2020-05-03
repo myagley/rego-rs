@@ -92,13 +92,23 @@ Package: Vec<&'input str> = "package" <Dot<"id">> ";"+;
 
 Rule: Rule<'input> = {
     "default" <Var> "=" <Term> ";"+ => Rule::Default(DefaultRule::new(<>)),
-    <Var> <( ExprOp <Term> )?> <RuleBody?> ";"+ => Rule::Complete(CompleteRule::new(<>)),
+    <Var> <( ExprOp <Term> )?> <RuleBodyElse?> ";"+ => Rule::Complete(CompleteRule::new(<>)),
     <Var> "[" <Term> "]" <RuleBody?> ";"+ => Rule::Set(SetRule::new(<>)),
     <Var> "[" <Term> "]" "=" <Term> <RuleBody?> ";"+ => Rule::Object(ObjectRule::new(<>)),
-    <Var> "(" <Comma<Term>> ")" "=" <Term> <RuleBody?> ";"+ => Rule::Function(FunctionRule::new(<>)),
+    <Var> "(" <Comma<Term>> ")" "=" <Term> <RuleBodyElse?> ";"+ => Rule::Function(FunctionRule::new(<>)),
 };
 
 RuleBody: RuleBody<'input> = {
+    "{" <Query> "}" => RuleBody::Clauses(vec![<>]),
+    "{" <h:Query> "}" <t:("{" <Query> "}")+> => {
+        let mut clauses = vec![h];
+        let mut tail = t;
+        clauses.append(&mut tail);
+        RuleBody::Clauses(clauses)
+    },
+};
+
+RuleBodyElse: RuleBody<'input> = {
     "{" <Query> "}" => RuleBody::Clauses(vec![<>]),
     "{" <h:Query> "}" <t:("{" <Query> "}")+> => {
         let mut clauses = vec![h];

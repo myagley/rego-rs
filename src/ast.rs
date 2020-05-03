@@ -10,6 +10,7 @@ pub enum Error {
     ConflictingRules(String),
     MultipleDefaults(String),
     Unsupported(&'static str),
+    UnexpectedElse,
 }
 
 impl fmt::Display for Error {
@@ -18,6 +19,7 @@ impl fmt::Display for Error {
             Error::ConflictingRules(s) => write!(f, "conflicting rules found for {}", s),
             Error::MultipleDefaults(s) => write!(f, "multiple default rules named {} found", s),
             Error::Unsupported(s) => write!(f, "{} are unsupported", s),
+            Error::UnexpectedElse => write!(f, "unexpected 'else' in rule body"),
         }
     }
 }
@@ -126,18 +128,28 @@ pub struct Rule {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Clause {
-    head: RuleHead,
-    body: RuleBody,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum RuleHead {
-    Default(Expr),
-    Complete(Expr),
-    Set(Expr),
-    Object(Expr, Expr),
-    Function(Vec<Expr>, Expr),
+pub enum Clause {
+    Default {
+        value: Expr,
+    },
+    Complete {
+        value: Expr,
+        body: RuleBody,
+    },
+    Set {
+        key: Expr,
+        body: Expr,
+    },
+    Object {
+        key: Expr,
+        value: Expr,
+        body: Expr,
+    },
+    Function {
+        args: Vec<Expr>,
+        value: Expr,
+        body: RuleBody,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -163,10 +175,8 @@ impl TryFrom<tree::DefaultRule<'_>> for Vec<Clause> {
 
     fn try_from(rule: tree::DefaultRule<'_>) -> Result<Self, Self::Error> {
         let term = rule.into_term();
-        let head = RuleHead::Default(Expr::try_from(term)?);
-        let body = RuleBody::Query(Expr::Scalar(Value::Bool(true)));
-        let clause = Clause { head, body };
-        Ok(vec![clause])
+        let value = Expr::try_from(term)?;
+        Ok(vec![Clause::Default { value }])
     }
 }
 
@@ -179,15 +189,14 @@ impl TryFrom<tree::CompleteRule<'_>> for Vec<Clause> {
             .map(Expr::try_from)
             .unwrap_or_else(|| Ok(Expr::Scalar(Value::Bool(true))))?;
 
-        let head = RuleHead::Complete(value);
         let bodies = maybe_body
             .map(Vec::<RuleBody>::try_from)
             .transpose()?
             .unwrap_or_else(|| vec![RuleBody::Query(Expr::Scalar(Value::Bool(true)))]);
         let clauses = bodies
             .into_iter()
-            .map(|body| Clause {
-                head: head.clone(),
+            .map(|body| Clause::Complete {
+                value: value.clone(),
                 body,
             })
             .collect();
@@ -201,15 +210,14 @@ impl TryFrom<tree::SetRule<'_>> for Vec<Clause> {
     fn try_from(rule: tree::SetRule<'_>) -> Result<Self, Self::Error> {
         let (key, maybe_body) = rule.into_parts();
         let key = Expr::try_from(key)?;
-        let head = RuleHead::Set(key);
         let bodies = maybe_body
-            .map(Vec::<RuleBody>::try_from)
+            .map(Vec::<Expr>::try_from)
             .transpose()?
-            .unwrap_or_else(|| vec![RuleBody::Query(Expr::Scalar(Value::Bool(true)))]);
+            .unwrap_or_else(|| vec![Expr::Scalar(Value::Bool(true))]);
         let clauses = bodies
             .into_iter()
-            .map(|body| Clause {
-                head: head.clone(),
+            .map(|body| Clause::Set {
+                key: key.clone(),
                 body,
             })
             .collect();
@@ -224,15 +232,15 @@ impl TryFrom<tree::ObjectRule<'_>> for Vec<Clause> {
         let (key, value, maybe_body) = rule.into_parts();
         let key = Expr::try_from(key)?;
         let value = Expr::try_from(value)?;
-        let head = RuleHead::Object(key, value);
         let bodies = maybe_body
-            .map(Vec::<RuleBody>::try_from)
+            .map(Vec::<Expr>::try_from)
             .transpose()?
-            .unwrap_or_else(|| vec![RuleBody::Query(Expr::Scalar(Value::Bool(true)))]);
+            .unwrap_or_else(|| vec![Expr::Scalar(Value::Bool(true))]);
         let clauses = bodies
             .into_iter()
-            .map(|body| Clause {
-                head: head.clone(),
+            .map(|body| Clause::Object {
+                key: key.clone(),
+                value: value.clone(),
                 body,
             })
             .collect();
@@ -250,15 +258,15 @@ impl TryFrom<tree::FunctionRule<'_>> for Vec<Clause> {
             .map(Expr::try_from)
             .collect::<Result<Vec<Expr>, Error>>()?;
         let value = Expr::try_from(value)?;
-        let head = RuleHead::Function(args, value);
         let bodies = maybe_body
             .map(Vec::<RuleBody>::try_from)
             .transpose()?
             .unwrap_or_else(|| vec![RuleBody::Query(Expr::Scalar(Value::Bool(true)))]);
         let clauses = bodies
             .into_iter()
-            .map(|body| Clause {
-                head: head.clone(),
+            .map(|body| Clause::Function {
+                args: args.clone(),
+                value: value.clone(),
                 body,
             })
             .collect();
@@ -315,7 +323,7 @@ impl<'a> TryFrom<tree::Module<'a>> for Module {
                     tocheck.fold(Ok(first), |acc, c| match (acc, c) {
                         (Err(e), _) => Err(e),
                         (Ok(a), b) => {
-                            if is_conflicting(&a.head, &b.head) {
+                            if is_conflicting(&a, &b) {
                                 Err(Error::ConflictingRules(name.to_string()))
                             } else {
                                 Ok(a)
@@ -364,6 +372,20 @@ impl TryFrom<tree::RuleBody<'_>> for Vec<RuleBody> {
     }
 }
 
+impl TryFrom<tree::RuleBody<'_>> for Vec<Expr> {
+    type Error = Error;
+
+    fn try_from(body: tree::RuleBody<'_>) -> Result<Self, Self::Error> {
+        match body {
+            tree::RuleBody::Clauses(queries) => queries
+                .into_iter()
+                .map(|q| Ok(Expr::try_from(q)?))
+                .collect::<Result<Self, Error>>(),
+            tree::RuleBody::WithElses(_query, _elses) => Err(Error::UnexpectedElse),
+        }
+    }
+}
+
 fn extract_default<'a>(
     rules: &Vec<tree::Rule<'a>>,
 ) -> Result<Option<tree::DefaultRule<'a>>, Error> {
@@ -377,12 +399,12 @@ fn extract_default<'a>(
     Ok(default)
 }
 
-fn is_conflicting(left: &RuleHead, right: &RuleHead) -> bool {
+fn is_conflicting(left: &Clause, right: &Clause) -> bool {
     match (left, right) {
-        (RuleHead::Complete(a), RuleHead::Complete(b)) if a == b => false,
-        (RuleHead::Set(_), RuleHead::Set(_)) => false,
-        (RuleHead::Object(_, _), RuleHead::Object(_, _)) => false,
-        (RuleHead::Function(_, _), RuleHead::Function(_, _)) => false,
+        (Clause::Complete { value: a, .. }, Clause::Complete { value: b, .. }) if a == b => false,
+        (Clause::Set { .. }, Clause::Set { .. }) => false,
+        (Clause::Object { .. }, Clause::Object { .. }) => false,
+        (Clause::Function { .. }, Clause::Function { .. }) => false,
         _ => true,
     }
 }
