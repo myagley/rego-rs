@@ -36,15 +36,10 @@ pub trait Visitor {
     type Value;
     type Error;
 
-    fn visit_expr(self, expr: Expr) -> Result<Self::Value, Self::Error>;
-
-    fn visit_collection(self, collection: Collection) -> Result<Self::Value, Self::Error>;
-
-    fn visit_comprehension(self, _comprehension: Comprehension)
-        -> Result<Self::Value, Self::Error>;
+    fn visit_expr(&mut self, expr: &mut Expr) -> Result<Self::Value, Self::Error>;
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Opcode {
     Add,
     Sub,
@@ -71,29 +66,11 @@ pub enum Collection {
     Object(Vec<(Expr, Expr)>),
 }
 
-impl Collection {
-    pub fn accept<V>(self, visitor: V) -> Result<V::Value, V::Error>
-    where
-        V: Visitor,
-    {
-        visitor.visit_collection(self)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum Comprehension {
     Array(Box<Expr>, Box<Expr>),
     Set(Box<Expr>, Box<Expr>),
     Object(Box<(Expr, Expr)>, Box<Expr>),
-}
-
-impl Comprehension {
-    pub fn accept<V>(self, visitor: V) -> Result<V::Value, V::Error>
-    where
-        V: Visitor,
-    {
-        visitor.visit_comprehension(self)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -112,7 +89,7 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn accept<V>(self, visitor: V) -> Result<V::Value, V::Error>
+    pub fn accept<V>(&mut self, visitor: &mut V) -> Result<V::Value, V::Error>
     where
         V: Visitor,
     {

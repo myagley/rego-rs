@@ -136,7 +136,8 @@ pub struct CompiledQuery {
 
 impl CompiledQuery {
     pub fn from_query(query: Query<'_>) -> Result<Self, Error> {
-        let expr = Expr::try_from(query).unwrap();
+        let mut expr = Expr::try_from(query).unwrap();
+        // expr.accept(&mut const_eval::ConstEval)?;
         let mut compiler = Compiler::new();
         expr.accept(&mut compiler)?;
 
@@ -265,46 +266,15 @@ impl Compiler {
             _ => todo!(),
         }
     }
-}
 
-impl Visitor for &mut Compiler {
-    type Value = ();
-    type Error = Error;
-
-    fn visit_expr(self, expr: Expr) -> Result<Self::Value, Self::Error> {
-        match expr {
-            Expr::Scalar(value) => self.instructions.push(Instruction::Const(value)),
-            Expr::Collection(collection) => collection.accept(&mut *self)?,
-            Expr::Comprehension(compr) => compr.accept(&mut *self)?,
-            Expr::Var(ref s) if s == &"input" => self.instructions.push(Instruction::LoadGlobal),
-            Expr::BinOp(left, op, right) => {
-                left.accept(&mut *self)?;
-                right.accept(&mut *self)?;
-                self.push_op(op);
-            }
-            Expr::Index(refs) => {
-                let mut iter = refs.into_iter();
-                if let Some(head) = iter.next() {
-                    head.accept(&mut *self)?;
-                    for next in iter {
-                        next.accept(&mut *self)?;
-                        self.instructions.push(Instruction::Index);
-                    }
-                }
-            }
-            _ => todo!(),
-        }
-        Ok(())
-    }
-
-    fn visit_collection(self, collection: Collection) -> Result<Self::Value, Self::Error> {
+    fn push_collection(&mut self, collection: &mut Collection) -> Result<(), Error> {
         match collection {
             Collection::Array(array) => {
                 let len = array.len();
 
                 // push the terms
                 for term in array.into_iter().rev() {
-                    term.accept(&mut *self)?;
+                    term.accept(self)?;
                 }
 
                 // push the collect instruction
@@ -316,7 +286,7 @@ impl Visitor for &mut Compiler {
 
                 // push the terms
                 for term in set {
-                    term.accept(&mut *self)?;
+                    term.accept(self)?;
                 }
 
                 // push the collect instruction
@@ -328,8 +298,8 @@ impl Visitor for &mut Compiler {
 
                 // push the terms
                 for (key, value) in obj {
-                    key.accept(&mut *self)?;
-                    value.accept(&mut *self)?;
+                    key.accept(self)?;
+                    value.accept(self)?;
                 }
 
                 // push the collect instruction
@@ -340,10 +310,38 @@ impl Visitor for &mut Compiler {
         Ok(())
     }
 
-    fn visit_comprehension(
-        self,
-        _comprehension: Comprehension,
-    ) -> Result<Self::Value, Self::Error> {
+    fn push_comprehension(&mut self, _comprehension: &mut Comprehension) -> Result<(), Error> {
+        Ok(())
+    }
+}
+
+impl Visitor for Compiler {
+    type Value = ();
+    type Error = Error;
+
+    fn visit_expr(&mut self, expr: &mut Expr) -> Result<Self::Value, Self::Error> {
+        match expr {
+            Expr::Scalar(value) => self.instructions.push(Instruction::Const(value.clone())),
+            Expr::Collection(collection) => self.push_collection(collection)?,
+            Expr::Comprehension(compr) => self.push_comprehension(compr)?,
+            Expr::Var(ref s) if s == &"input" => self.instructions.push(Instruction::LoadGlobal),
+            Expr::BinOp(left, op, right) => {
+                left.accept(self)?;
+                right.accept(self)?;
+                self.push_op(*op);
+            }
+            Expr::Index(refs) => {
+                let mut iter = refs.into_iter();
+                if let Some(head) = iter.next() {
+                    head.accept(self)?;
+                    for next in iter {
+                        next.accept(self)?;
+                        self.instructions.push(Instruction::Index);
+                    }
+                }
+            }
+            _ => todo!(),
+        }
         Ok(())
     }
 }
