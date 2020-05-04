@@ -101,7 +101,7 @@ impl fmt::Display for Instruction {
 #[derive(Debug, PartialEq)]
 pub enum Error {
     InvalidNumArgs(usize, usize),
-    InvalidStack,
+    StackUnderflow,
     InvalidValueType(&'static str),
 }
 
@@ -113,7 +113,7 @@ impl fmt::Display for Error {
                 "invalid number of args for op. expected {}, got {}",
                 expected, got
             ),
-            Error::InvalidStack => write!(f, "expected item on stack."),
+            Error::StackUnderflow => write!(f, "stack underflow"),
             Error::InvalidValueType(t) => {
                 write!(f, "unexpected value type on stack: expected {}", t)
             }
@@ -186,8 +186,14 @@ impl<'a> Instance<'a> {
             match self.instructions[pc] {
                 Const(ref v) => self.value_stack.push(v),
                 BinOp(binop) => {
-                    let right = self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
-                    let left = self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
+                    let right = self
+                        .value_stack
+                        .pop()
+                        .ok_or_else(|| Error::StackUnderflow)?;
+                    let left = self
+                        .value_stack
+                        .pop()
+                        .ok_or_else(|| Error::StackUnderflow)?;
                     let result = self.heap.alloc(binop.op(left, right));
                     self.value_stack.push(&*result);
                 }
@@ -195,8 +201,10 @@ impl<'a> Instance<'a> {
                     CollectType::Array => {
                         let mut result = vec![];
                         for _i in 0..len {
-                            let value =
-                                self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
+                            let value = self
+                                .value_stack
+                                .pop()
+                                .ok_or_else(|| Error::StackUnderflow)?;
                             result.push(value.clone());
                         }
                         let result = self.heap.alloc(Value::Array(result));
@@ -205,8 +213,10 @@ impl<'a> Instance<'a> {
                     CollectType::Set => {
                         let mut result = Set::new();
                         for _i in 0..len {
-                            let value =
-                                self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
+                            let value = self
+                                .value_stack
+                                .pop()
+                                .ok_or_else(|| Error::StackUnderflow)?;
                             result.insert(value.clone());
                         }
                         let result = self.heap.alloc(Value::Set(result));
@@ -215,9 +225,14 @@ impl<'a> Instance<'a> {
                     CollectType::Map => {
                         let mut result = Map::new();
                         for _i in 0..len {
-                            let value =
-                                self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
-                            let key = self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
+                            let value = self
+                                .value_stack
+                                .pop()
+                                .ok_or_else(|| Error::StackUnderflow)?;
+                            let key = self
+                                .value_stack
+                                .pop()
+                                .ok_or_else(|| Error::StackUnderflow)?;
                             result.insert(key.clone(), value.clone());
                         }
                         let result = self.heap.alloc(Value::Object(result));
@@ -225,8 +240,14 @@ impl<'a> Instance<'a> {
                     }
                 },
                 Index => {
-                    let arg = self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
-                    let target = self.value_stack.pop().ok_or_else(|| Error::InvalidStack)?;
+                    let arg = self
+                        .value_stack
+                        .pop()
+                        .ok_or_else(|| Error::StackUnderflow)?;
+                    let target = self
+                        .value_stack
+                        .pop()
+                        .ok_or_else(|| Error::StackUnderflow)?;
                     let result = target.get(arg).unwrap_or_else(|| &UNDEFINED);
                     self.value_stack.push(result);
                 }
