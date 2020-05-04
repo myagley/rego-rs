@@ -9,6 +9,9 @@ use crate::parser::tree::Query;
 use crate::value::{Map, Set, Value};
 
 mod const_eval;
+mod stack;
+
+pub use stack::Stack;
 
 static UNDEFINED: Value = Value::Undefined;
 
@@ -101,8 +104,9 @@ impl fmt::Display for Instruction {
 #[derive(Debug, PartialEq)]
 pub enum Error {
     InvalidNumArgs(usize, usize),
-    StackUnderflow,
     InvalidValueType(&'static str),
+    StackUnderflow,
+    StackOverflow,
 }
 
 impl fmt::Display for Error {
@@ -113,10 +117,11 @@ impl fmt::Display for Error {
                 "invalid number of args for op. expected {}, got {}",
                 expected, got
             ),
-            Error::StackUnderflow => write!(f, "stack underflow"),
             Error::InvalidValueType(t) => {
                 write!(f, "unexpected value type on stack: expected {}", t)
             }
+            Error::StackUnderflow => write!(f, "stack underflow"),
+            Error::StackOverflow => write!(f, "stack overflow"),
         }
     }
 }
@@ -148,10 +153,10 @@ impl CompiledQuery {
         Ok(query)
     }
 
-    pub fn eval(&self, input: Value) -> Result<Option<Value>, Error> {
+    pub fn eval(&self, input: Value) -> Result<Value, Error> {
         let mut instance = Instance {
             instructions: self.instructions.clone(),
-            value_stack: Vec::with_capacity(10),
+            value_stack: Stack::new(),
             heap: Arena::new(),
             input,
         };
@@ -170,13 +175,13 @@ impl fmt::Display for CompiledQuery {
 
 struct Instance<'m> {
     instructions: Arc<Vec<Instruction>>,
-    value_stack: Vec<&'m Value>,
+    value_stack: Stack<&'m Value>,
     heap: Arena<Value>,
     input: Value,
 }
 
 impl<'a> Instance<'a> {
-    fn eval(&'a mut self) -> Result<Option<Value>, Error> {
+    fn eval(&'a mut self) -> Result<Value, Error> {
         use Instruction::*;
 
         let mut pc = 0;
@@ -184,80 +189,56 @@ impl<'a> Instance<'a> {
 
         while pc < self.instructions.len() {
             match self.instructions[pc] {
-                Const(ref v) => self.value_stack.push(v),
+                Const(ref v) => self.value_stack.push(v)?,
                 BinOp(binop) => {
-                    let right = self
-                        .value_stack
-                        .pop()
-                        .ok_or_else(|| Error::StackUnderflow)?;
-                    let left = self
-                        .value_stack
-                        .pop()
-                        .ok_or_else(|| Error::StackUnderflow)?;
+                    let right = self.value_stack.pop()?;
+                    let left = self.value_stack.pop()?;
                     let result = self.heap.alloc(binop.op(left, right));
-                    self.value_stack.push(&*result);
+                    self.value_stack.push(&*result)?;
                 }
                 Collect(ref ty, len) => match ty {
                     CollectType::Array => {
                         let mut result = vec![];
                         for _i in 0..len {
-                            let value = self
-                                .value_stack
-                                .pop()
-                                .ok_or_else(|| Error::StackUnderflow)?;
+                            let value = self.value_stack.pop()?;
                             result.push(value.clone());
                         }
                         let result = self.heap.alloc(Value::Array(result));
-                        self.value_stack.push(&*result);
+                        self.value_stack.push(&*result)?;
                     }
                     CollectType::Set => {
                         let mut result = Set::new();
                         for _i in 0..len {
-                            let value = self
-                                .value_stack
-                                .pop()
-                                .ok_or_else(|| Error::StackUnderflow)?;
+                            let value = self.value_stack.pop()?;
                             result.insert(value.clone());
                         }
                         let result = self.heap.alloc(Value::Set(result));
-                        self.value_stack.push(&*result);
+                        self.value_stack.push(&*result)?;
                     }
                     CollectType::Map => {
                         let mut result = Map::new();
                         for _i in 0..len {
-                            let value = self
-                                .value_stack
-                                .pop()
-                                .ok_or_else(|| Error::StackUnderflow)?;
-                            let key = self
-                                .value_stack
-                                .pop()
-                                .ok_or_else(|| Error::StackUnderflow)?;
+                            let value = self.value_stack.pop()?;
+                            let key = self.value_stack.pop()?;
                             result.insert(key.clone(), value.clone());
                         }
                         let result = self.heap.alloc(Value::Object(result));
-                        self.value_stack.push(&*result);
+                        self.value_stack.push(&*result)?;
                     }
                 },
                 Index => {
-                    let arg = self
-                        .value_stack
-                        .pop()
-                        .ok_or_else(|| Error::StackUnderflow)?;
-                    let target = self
-                        .value_stack
-                        .pop()
-                        .ok_or_else(|| Error::StackUnderflow)?;
+                    let arg = self.value_stack.pop()?;
+                    let target = self.value_stack.pop()?;
                     let result = target.get(arg).unwrap_or_else(|| &UNDEFINED);
-                    self.value_stack.push(result);
+                    self.value_stack.push(result)?;
                 }
                 LoadGlobal => {
-                    self.value_stack.push(&self.input);
+                    self.value_stack.push(&self.input)?;
                 }
             }
             pc += 1
         }
-        Ok(self.value_stack.pop().map(|o| o.clone()))
+        self.value_stack.pop().map(|o| o.clone())
     }
 }
 
@@ -407,7 +388,6 @@ mod tests {
         let result = query
             .eval(Value::Undefined)
             .unwrap()
-            .unwrap()
             .try_into_array()
             .unwrap();
         let expected: Vec<Value> = vec![
@@ -426,7 +406,6 @@ mod tests {
         println!("{}", query);
         let result = query
             .eval(Value::Undefined)
-            .unwrap()
             .unwrap()
             .try_into_set()
             .unwrap();
@@ -449,7 +428,6 @@ mod tests {
         let result = query
             .eval(Value::Undefined)
             .unwrap()
-            .unwrap()
             .try_into_object()
             .unwrap();
         let mut expected: Map<Value, Value> = Map::new();
@@ -463,7 +441,7 @@ mod tests {
         let input = "[[3, 2], 2, 3][0][1]";
         let term = parse_query(&input).unwrap();
         let query = CompiledQuery::from_query(term).unwrap();
-        let result = query.eval(Value::Undefined).unwrap().unwrap();
+        let result = query.eval(Value::Undefined).unwrap();
         let expected = Value::Number(2.into());
         assert_eq!(expected, result);
     }
@@ -473,7 +451,7 @@ mod tests {
         let input = "{\"three\": 3, \"two\": 2}[\"three\"]";
         let term = parse_query(&input).unwrap();
         let query = CompiledQuery::from_query(term).unwrap();
-        let result = query.eval(Value::Undefined).unwrap().unwrap();
+        let result = query.eval(Value::Undefined).unwrap();
         let expected = Value::Number(3.into());
         assert_eq!(expected, result);
     }
@@ -485,7 +463,7 @@ mod tests {
         let query = CompiledQuery::from_query(term).unwrap();
         let mut input = Map::new();
         input.insert(Value::String("a".to_string()), Value::Number(3.into()));
-        let result = query.eval(Value::Object(input)).unwrap().unwrap();
+        let result = query.eval(Value::Object(input)).unwrap();
         let expected = Value::Bool(true);
         assert_eq!(expected, result);
     }
