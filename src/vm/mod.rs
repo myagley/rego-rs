@@ -9,11 +9,14 @@ use crate::parser::tree::Query;
 use crate::value::{Map, Set, Value};
 
 mod const_eval;
+mod name_resolve;
 mod stack;
 
 pub use stack::Stack;
 
 static UNDEFINED: Value = Value::Undefined;
+const INPUT_ROOT: &str = "input";
+const DATA_ROOT: &str = "data";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum BinOp {
@@ -330,7 +333,7 @@ impl Visitor for Compiler {
             Expr::Scalar(value) => self.instructions.push(Instruction::Const(value.clone())),
             Expr::Collection(collection) => self.push_collection(collection)?,
             Expr::Comprehension(compr) => self.push_comprehension(compr)?,
-            Expr::Var(ref s) if s == &"input" => self.instructions.push(Instruction::LoadGlobal),
+            Expr::Var(ref s) if s == INPUT_ROOT => self.instructions.push(Instruction::LoadGlobal),
             Expr::BinOp(left, op, right) => {
                 left.accept(self)?;
                 right.accept(self)?;

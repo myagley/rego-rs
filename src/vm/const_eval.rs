@@ -8,6 +8,15 @@ use crate::vm::Error;
 
 pub struct ConstEval;
 
+impl ConstEval {
+    fn visit_vec(&mut self, items: &mut Vec<Expr>) -> Result<(), Error> {
+        for item in items {
+            item.accept(self)?;
+        }
+        Ok(())
+    }
+}
+
 impl Visitor for ConstEval {
     type Value = ();
     type Error = Error;
@@ -18,56 +27,7 @@ impl Visitor for ConstEval {
 
     fn visit_expr(&mut self, expr: &mut Expr) -> Result<Self::Value, Self::Error> {
         match expr {
-            Expr::BinOp(ref mut left, op, ref mut right) => {
-                left.accept(self)?;
-                right.accept(self)?;
-                let left = &*left;
-                let right = &*right;
-
-                match (left.deref(), op, right.deref()) {
-                    (Expr::Scalar(left), Opcode::Add, Expr::Scalar(right)) => {
-                        let result = left + right;
-                        mem::replace(expr, Expr::Scalar(result));
-                    }
-                    (Expr::Scalar(left), Opcode::Sub, Expr::Scalar(right)) => {
-                        let result = left - right;
-                        mem::replace(expr, Expr::Scalar(result));
-                    }
-                    (Expr::Scalar(left), Opcode::Mul, Expr::Scalar(right)) => {
-                        let result = left * right;
-                        mem::replace(expr, Expr::Scalar(result));
-                    }
-                    (Expr::Scalar(left), Opcode::Div, Expr::Scalar(right)) => {
-                        let result = left / right;
-                        mem::replace(expr, Expr::Scalar(result));
-                    }
-                    (Expr::Scalar(left), Opcode::Lt, Expr::Scalar(right)) => {
-                        let result = left.lt(&right).into();
-                        mem::replace(expr, Expr::Scalar(result));
-                    }
-                    (Expr::Scalar(left), Opcode::Lte, Expr::Scalar(right)) => {
-                        let result = left.le(&right).into();
-                        mem::replace(expr, Expr::Scalar(result));
-                    }
-                    (Expr::Scalar(left), Opcode::Gt, Expr::Scalar(right)) => {
-                        let result = left.gt(&right).into();
-                        mem::replace(expr, Expr::Scalar(result));
-                    }
-                    (Expr::Scalar(left), Opcode::Gte, Expr::Scalar(right)) => {
-                        let result = left.ge(&right).into();
-                        mem::replace(expr, Expr::Scalar(result));
-                    }
-                    (Expr::Scalar(left), Opcode::EqEq, Expr::Scalar(right)) => {
-                        let result = left.eq(&right).into();
-                        mem::replace(expr, Expr::Scalar(result));
-                    }
-                    (Expr::Scalar(left), Opcode::Ne, Expr::Scalar(right)) => {
-                        let result = left.ne(&right).into();
-                        mem::replace(expr, Expr::Scalar(result));
-                    }
-                    _ => (),
-                }
-            }
+            Expr::Scalar(_) => (),
             Expr::Collection(collection) => match collection {
                 Collection::Array(array) => {
                     let array = array
@@ -133,7 +93,76 @@ impl Visitor for ConstEval {
                     }
                 }
             },
-            _ => (),
+            Expr::Comprehension(ref mut compr) => match compr {
+                Comprehension::Array(head, body) => {
+                    head.accept(self)?;
+                    body.accept(self)?;
+                }
+                Comprehension::Set(head, body) => {
+                    head.accept(self)?;
+                    body.accept(self)?;
+                }
+                Comprehension::Object(head, body) => {
+                    head.0.accept(self)?;
+                    head.1.accept(self)?;
+                    body.accept(self)?;
+                }
+            },
+            Expr::Var(_) => (),
+            Expr::BinOp(ref mut left, op, ref mut right) => {
+                left.accept(self)?;
+                right.accept(self)?;
+                let left = &*left;
+                let right = &*right;
+
+                match (left.deref(), op, right.deref()) {
+                    (Expr::Scalar(left), Opcode::Add, Expr::Scalar(right)) => {
+                        let result = left + right;
+                        mem::replace(expr, Expr::Scalar(result));
+                    }
+                    (Expr::Scalar(left), Opcode::Sub, Expr::Scalar(right)) => {
+                        let result = left - right;
+                        mem::replace(expr, Expr::Scalar(result));
+                    }
+                    (Expr::Scalar(left), Opcode::Mul, Expr::Scalar(right)) => {
+                        let result = left * right;
+                        mem::replace(expr, Expr::Scalar(result));
+                    }
+                    (Expr::Scalar(left), Opcode::Div, Expr::Scalar(right)) => {
+                        let result = left / right;
+                        mem::replace(expr, Expr::Scalar(result));
+                    }
+                    (Expr::Scalar(left), Opcode::Lt, Expr::Scalar(right)) => {
+                        let result = left.lt(&right).into();
+                        mem::replace(expr, Expr::Scalar(result));
+                    }
+                    (Expr::Scalar(left), Opcode::Lte, Expr::Scalar(right)) => {
+                        let result = left.le(&right).into();
+                        mem::replace(expr, Expr::Scalar(result));
+                    }
+                    (Expr::Scalar(left), Opcode::Gt, Expr::Scalar(right)) => {
+                        let result = left.gt(&right).into();
+                        mem::replace(expr, Expr::Scalar(result));
+                    }
+                    (Expr::Scalar(left), Opcode::Gte, Expr::Scalar(right)) => {
+                        let result = left.ge(&right).into();
+                        mem::replace(expr, Expr::Scalar(result));
+                    }
+                    (Expr::Scalar(left), Opcode::EqEq, Expr::Scalar(right)) => {
+                        let result = left.eq(&right).into();
+                        mem::replace(expr, Expr::Scalar(result));
+                    }
+                    (Expr::Scalar(left), Opcode::Ne, Expr::Scalar(right)) => {
+                        let result = left.ne(&right).into();
+                        mem::replace(expr, Expr::Scalar(result));
+                    }
+                    _ => (),
+                }
+            }
+            Expr::Index(v) => self.visit_vec(v)?,
+            Expr::Call(_, args) => self.visit_vec(args)?,
+            Expr::Not(not) => not.accept(self)?,
+            Expr::Some(_) => (),
         };
         Ok(())
     }

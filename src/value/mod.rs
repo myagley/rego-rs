@@ -14,7 +14,7 @@ pub use self::number::Number;
 pub type Map<K, V> = BTreeMap<K, V>;
 pub type Set<V> = BTreeSet<V>;
 
-#[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub enum Value {
     Undefined,
     Null,

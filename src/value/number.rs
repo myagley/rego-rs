@@ -7,12 +7,12 @@ use serde::{forward_to_deserialize_any, Deserialize, Deserializer, Serialize, Se
 
 use crate::Error;
 
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub struct Number {
     n: N,
 }
 
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd, Hash)]
 enum N {
     PosInt(u64),
     NegInt(i64),
@@ -292,7 +292,7 @@ macro_rules! deserialize_number {
         {
             self.deserialize_any(visitor)
         }
-    }
+    };
 }
 
 impl<'de> Deserializer<'de> for Number {

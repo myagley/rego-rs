@@ -47,14 +47,73 @@ pub struct Module {
     rules: Vec<Rule>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl Module {
+    pub(crate) fn new(package: Vec<String>, rules: Vec<Rule>) -> Self {
+        Self { package, rules }
+    }
+
+    pub fn package(&self) -> &[String] {
+        &self.package
+    }
+
+    pub fn rules(&self) -> &[Rule] {
+        &self.rules
+    }
+
+    pub fn rules_mut(&mut self) -> &mut [Rule] {
+        self.rules.as_mut_slice()
+    }
+
+    pub fn accept<V>(&mut self, visitor: &mut V) -> Result<V::Value, V::Error>
+    where
+        V: Visitor,
+    {
+        visitor.visit_module(self)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Rule {
     name: String,
     default: Option<Expr>,
     clauses: Vec<Clause>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl Rule {
+    pub(crate) fn new(name: String, default: Option<Expr>, clauses: Vec<Clause>) -> Self {
+        Self {
+            name,
+            default,
+            clauses,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn set_name(&mut self, name: String) {
+        self.name = name
+    }
+
+    pub fn default(&self) -> Option<&Expr> {
+        self.default.as_ref()
+    }
+
+    pub fn default_mut(&mut self) -> Option<&mut Expr> {
+        self.default.as_mut()
+    }
+
+    pub fn clauses(&self) -> &[Clause] {
+        &self.clauses
+    }
+
+    pub fn clauses_mut(&mut self) -> &mut [Clause] {
+        self.clauses.as_mut_slice()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Clause {
     Default {
         value: Expr,
@@ -79,13 +138,13 @@ pub enum Clause {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RuleBody {
     Query(Expr),
     WithElses(Expr, Vec<Else>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Else {
     value: Option<Expr>,
     query: Expr,
@@ -95,9 +154,17 @@ impl Else {
     pub fn new(value: Option<Expr>, query: Expr) -> Self {
         Self { value, query }
     }
+
+    pub fn value_mut(&mut self) -> Option<&mut Expr> {
+        self.value.as_mut()
+    }
+
+    pub fn query_mut(&mut self) -> &mut Expr {
+        &mut self.query
+    }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Opcode {
     Add,
     Sub,
@@ -117,7 +184,7 @@ pub enum Opcode {
     Intersect,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
     Scalar(Value),
     Collection(Collection),
@@ -141,14 +208,14 @@ impl Expr {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Collection {
     Array(Vec<Expr>),
     Set(Vec<Expr>),
     Object(Vec<(Expr, Expr)>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Comprehension {
     Array(Box<Expr>, Box<Expr>),
     Set(Box<Expr>, Box<Expr>),
