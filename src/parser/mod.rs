@@ -28,43 +28,6 @@ pub fn parse_query<'input>(input: &'input str) -> Result<Query<'input>, ParseErr
 mod tests {
     use super::*;
 
-    use crate::parser::lexer::Lexer;
-    use crate::parser::tree::*;
-
-    #[test]
-    fn test_expr_parse() {
-        let cases = [
-            (" 123", Term::Scalar(123.into())),
-            (" 123.4", Term::Scalar(123.4.into())),
-            ("\"hello\"", Term::Scalar("hello".into())),
-            (
-                "x := (1 + 2) * 3 >= `sfs`",
-                Term::BinOp(
-                    Box::new(Term::Ref(Ref::new(Box::new(RefTarget::Var("x")), vec![]))),
-                    Opcode::Assign,
-                    Box::new(Term::BinOp(
-                        Box::new(Term::BinOp(
-                            Box::new(Term::BinOp(
-                                Box::new(Term::Scalar(1.into())),
-                                Opcode::Add,
-                                Box::new(Term::Scalar(2.into())),
-                            )),
-                            Opcode::Mul,
-                            Box::new(Term::Scalar(3.into())),
-                        )),
-                        Opcode::Gte,
-                        Box::new(Term::Scalar("sfs".into())),
-                    )),
-                ),
-            ),
-        ];
-        for (input, expected) in &cases {
-            let lexer = Lexer::new(input);
-            let result = grammar::ExprParser::new().parse(input, lexer).unwrap();
-            assert_eq!(*expected, result);
-        }
-    }
-
     #[test]
     fn test_query_parse() {
         let cases = [

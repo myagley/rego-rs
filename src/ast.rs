@@ -36,65 +36,15 @@ pub trait Visitor {
     type Value;
     type Error;
 
+    fn visit_module(&mut self, module: &mut Module) -> Result<Self::Value, Self::Error>;
+
     fn visit_expr(&mut self, expr: &mut Expr) -> Result<Self::Value, Self::Error>;
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum Opcode {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    And,
-    Or,
-    Lt,
-    Lte,
-    Gt,
-    Gte,
-    EqEq,
-    Ne,
-    Eq,
-    Assign,
-    Union,
-    Intersect,
-}
-
 #[derive(Debug, Clone, PartialEq)]
-pub enum Collection {
-    Array(Vec<Expr>),
-    Set(Vec<Expr>),
-    Object(Vec<(Expr, Expr)>),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Comprehension {
-    Array(Box<Expr>, Box<Expr>),
-    Set(Box<Expr>, Box<Expr>),
-    Object(Box<(Expr, Expr)>, Box<Expr>),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Expr {
-    Scalar(Value),
-    Collection(Collection),
-    Comprehension(Comprehension),
-    Var(String),
-
-    BinOp(Box<Expr>, Opcode, Box<Expr>),
-    Index(Vec<Expr>),
-    Call(String, Vec<Expr>),
-
-    Not(Box<Expr>),
-    Some(Vec<String>),
-}
-
-impl Expr {
-    pub fn accept<V>(&mut self, visitor: &mut V) -> Result<V::Value, V::Error>
-    where
-        V: Visitor,
-    {
-        visitor.visit_expr(self)
-    }
+pub struct Module {
+    package: Vec<String>,
+    rules: Vec<Rule>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -144,6 +94,87 @@ pub struct Else {
 impl Else {
     pub fn new(value: Option<Expr>, query: Expr) -> Self {
         Self { value, query }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum Opcode {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    And,
+    Or,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+    EqEq,
+    Ne,
+    Eq,
+    Assign,
+    Union,
+    Intersect,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Expr {
+    Scalar(Value),
+    Collection(Collection),
+    Comprehension(Comprehension),
+    Var(String),
+
+    BinOp(Box<Expr>, Opcode, Box<Expr>),
+    Index(Vec<Expr>),
+    Call(String, Vec<Expr>),
+
+    Not(Box<Expr>),
+    Some(Vec<String>),
+}
+
+impl Expr {
+    pub fn accept<V>(&mut self, visitor: &mut V) -> Result<V::Value, V::Error>
+    where
+        V: Visitor,
+    {
+        visitor.visit_expr(self)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Collection {
+    Array(Vec<Expr>),
+    Set(Vec<Expr>),
+    Object(Vec<(Expr, Expr)>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Comprehension {
+    Array(Box<Expr>, Box<Expr>),
+    Set(Box<Expr>, Box<Expr>),
+    Object(Box<(Expr, Expr)>, Box<Expr>),
+}
+
+fn extract_default<'a>(
+    rules: &Vec<tree::Rule<'a>>,
+) -> Result<Option<tree::DefaultRule<'a>>, Error> {
+    let default = rules
+        .iter()
+        .filter_map(|r| match r {
+            tree::Rule::Default(d) => Some(d.clone()),
+            _ => None,
+        })
+        .next();
+    Ok(default)
+}
+
+fn is_conflicting(left: &Clause, right: &Clause) -> bool {
+    match (left, right) {
+        (Clause::Complete { value: a, .. }, Clause::Complete { value: b, .. }) if a == b => false,
+        (Clause::Set { .. }, Clause::Set { .. }) => false,
+        (Clause::Object { .. }, Clause::Object { .. }) => false,
+        (Clause::Function { .. }, Clause::Function { .. }) => false,
+        _ => true,
     }
 }
 
@@ -251,12 +282,6 @@ impl TryFrom<tree::FunctionRule<'_>> for Vec<Clause> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Module {
-    package: Vec<String>,
-    rules: Vec<Rule>,
-}
-
 impl<'a> TryFrom<tree::Module<'a>> for Module {
     type Error = Error;
 
@@ -360,29 +385,6 @@ impl TryFrom<tree::RuleBody<'_>> for Vec<Expr> {
                 .collect::<Result<Self, Error>>(),
             tree::RuleBody::WithElses(_query, _elses) => Err(Error::UnexpectedElse),
         }
-    }
-}
-
-fn extract_default<'a>(
-    rules: &Vec<tree::Rule<'a>>,
-) -> Result<Option<tree::DefaultRule<'a>>, Error> {
-    let default = rules
-        .iter()
-        .filter_map(|r| match r {
-            tree::Rule::Default(d) => Some(d.clone()),
-            _ => None,
-        })
-        .next();
-    Ok(default)
-}
-
-fn is_conflicting(left: &Clause, right: &Clause) -> bool {
-    match (left, right) {
-        (Clause::Complete { value: a, .. }, Clause::Complete { value: b, .. }) if a == b => false,
-        (Clause::Set { .. }, Clause::Set { .. }) => false,
-        (Clause::Object { .. }, Clause::Object { .. }) => false,
-        (Clause::Function { .. }, Clause::Function { .. }) => false,
-        _ => true,
     }
 }
 

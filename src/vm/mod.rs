@@ -321,6 +321,10 @@ impl Visitor for Compiler {
     type Value = ();
     type Error = Error;
 
+    fn visit_module(&mut self, _module: &mut Module) -> Result<Self::Value, Self::Error> {
+        Ok(())
+    }
+
     fn visit_expr(&mut self, expr: &mut Expr) -> Result<Self::Value, Self::Error> {
         match expr {
             Expr::Scalar(value) => self.instructions.push(Instruction::Const(value.clone())),

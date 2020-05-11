@@ -12,6 +12,10 @@ impl Visitor for ConstEval {
     type Value = ();
     type Error = Error;
 
+    fn visit_module(&mut self, _module: &mut Module) -> Result<Self::Value, Self::Error> {
+        Ok(())
+    }
+
     fn visit_expr(&mut self, expr: &mut Expr) -> Result<Self::Value, Self::Error> {
         match expr {
             Expr::BinOp(ref mut left, op, ref mut right) => {

@@ -152,7 +152,7 @@ Tier<Op, NextTier>: Term<'input> = {
     NextTier,
 };
 
-pub Expr = Tier<ExprOp, Tier0>;
+Expr = Tier<ExprOp, Tier0>;
 Tier0 = Tier<Tier0Op, Tier1>;
 Tier1 = Tier<Tier1Op, Tier2>;
 Tier2 = Tier<Tier2Op, Tier3>;
