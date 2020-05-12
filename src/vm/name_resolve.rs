@@ -7,12 +7,13 @@ use crate::vm::{Error, DATA_ROOT, INPUT_ROOT};
 
 // TODO(miyagley) handle import name resolution
 
-pub struct ModuleNameResolution {
+/// Fully qualifies rule definitiions and references
+pub struct RuleResolver {
     package: String,
     local_rules: HashSet<String>,
 }
 
-impl ModuleNameResolution {
+impl RuleResolver {
     pub fn new(package: &[String]) -> Self {
         Self {
             package: package.join("."),
@@ -44,7 +45,7 @@ impl ModuleNameResolution {
     }
 }
 
-impl Visitor for ModuleNameResolution {
+impl Visitor for RuleResolver {
     type Value = ();
     type Error = Error;
 
@@ -114,18 +115,12 @@ impl Visitor for ModuleNameResolution {
                     body.accept(self)?;
                 }
             },
-            Expr::Var(s) if s == INPUT_ROOT => {
-                mem::replace(expr, Expr::InputRoot);
-            }
             Expr::Var(s) if self.local_rules.contains(s) => {
                 let new_var = format!("{}.{}.{}", DATA_ROOT, self.package, s);
                 mem::replace(expr, Expr::RuleCall(new_var));
             }
             Expr::Var(_) => {
                 // local variable
-            }
-            Expr::VarBrack(s) if s == INPUT_ROOT => {
-                mem::replace(expr, Expr::InputRoot);
             }
             Expr::VarBrack(s) if self.local_rules.contains(s) => {
                 let new_var = format!("{}.{}.{}", DATA_ROOT, self.package, s);
@@ -166,26 +161,105 @@ impl Visitor for ModuleNameResolution {
                         };
                         mem::replace(expr, new_expr);
                     }
-                    &[Expr::Var(ref s), ref tail @ ..] => {
-                        if s == INPUT_ROOT {
-                            let mut items = vec![Expr::InputRoot];
-                            for item in tail {
-                                if let Expr::Var(v) = item {
-                                    let new_var = Expr::Scalar(Value::String(v.clone()));
-                                    items.push(new_var);
-                                } else {
-                                    items.push(item.clone());
-                                }
-                            }
-                            mem::replace(expr, Expr::Index(items));
-                        }
-                    }
                     // &[Expr::Var(ref s), ..] => {
                     //     // TODO(miyagley) handle imports
                     // }
                     _ => self.visit_vec(v)?,
                 }
             }
+            Expr::RuleCall(_) => (),
+            Expr::FuncCall(_, args) => self.visit_vec(args)?,
+            Expr::Not(not) => not.accept(self)?,
+            Expr::Some(_) => (),
+        }
+        Ok(())
+    }
+}
+
+/// Resolves `input` and converts dotted indexes to scalar string indexes
+pub struct InputResolver;
+
+impl InputResolver {
+    pub fn new() -> Self {
+        Self
+    }
+
+    fn visit_vec(&mut self, items: &mut Vec<Expr>) -> Result<(), Error> {
+        for item in items {
+            item.accept(self)?;
+        }
+        Ok(())
+    }
+}
+
+impl Visitor for InputResolver {
+    type Value = ();
+    type Error = Error;
+
+    fn visit_module(&mut self, _module: &mut Module) -> Result<Self::Value, Self::Error> {
+        Ok(())
+    }
+
+    fn visit_expr(&mut self, expr: &mut Expr) -> Result<Self::Value, Self::Error> {
+        match expr {
+            Expr::Scalar(_) => (),
+            Expr::Collection(collection) => match collection {
+                Collection::Array(array) => self.visit_vec(array)?,
+                Collection::Set(set) => self.visit_vec(set)?,
+                Collection::Object(map) => {
+                    for (key, value) in map {
+                        key.accept(self)?;
+                        value.accept(self)?;
+                    }
+                }
+            },
+            Expr::Comprehension(ref mut compr) => match compr {
+                Comprehension::Array(head, body) => {
+                    head.accept(self)?;
+                    body.accept(self)?;
+                }
+                Comprehension::Set(head, body) => {
+                    head.accept(self)?;
+                    body.accept(self)?;
+                }
+                Comprehension::Object(head, body) => {
+                    head.0.accept(self)?;
+                    head.1.accept(self)?;
+                    body.accept(self)?;
+                }
+            },
+            Expr::Var(s) if s == INPUT_ROOT => {
+                mem::replace(expr, Expr::InputRoot);
+            }
+            Expr::Var(_) => {
+                // local variable
+            }
+            Expr::VarBrack(s) if s == INPUT_ROOT => {
+                mem::replace(expr, Expr::InputRoot);
+            }
+            Expr::VarBrack(_) => {
+                // local variable
+            }
+            Expr::InputRoot => (),
+            Expr::BinOp(ref mut left, _op, ref mut right) => {
+                left.accept(self)?;
+                right.accept(self)?;
+            }
+            Expr::Index(v) => match v.as_slice() {
+                &[Expr::Var(ref s), ref tail @ ..] if s == INPUT_ROOT => {
+                    let mut items = vec![Expr::InputRoot];
+                    for item in tail {
+                        if let Expr::Var(v) = item {
+                            let new_var = Expr::Scalar(Value::String(v.clone()));
+                            items.push(new_var);
+                        } else {
+                            items.push(item.clone());
+                        }
+                    }
+                    mem::replace(expr, Expr::Index(items));
+                }
+                _ => self.visit_vec(v)?,
+            },
             Expr::RuleCall(_) => (),
             Expr::FuncCall(_, args) => self.visit_vec(args)?,
             Expr::Not(not) => not.accept(self)?,
@@ -246,7 +320,7 @@ mod tests {
         let expected = Module::new(vec!["opa".to_string(), "examples".to_string()], rules);
 
         let mut module = Module::try_from(parse_module(input).unwrap()).unwrap();
-        let mut visitor = ModuleNameResolution::new(module.package());
+        let mut visitor = RuleResolver::new(module.package());
         module.accept(&mut visitor).unwrap();
 
         let expected = expected
@@ -301,7 +375,7 @@ mod tests {
         let expected = Module::new(vec!["opa".to_string(), "examples".to_string()], rules);
 
         let mut module = Module::try_from(parse_module(input).unwrap()).unwrap();
-        let mut visitor = ModuleNameResolution::new(module.package());
+        let mut visitor = RuleResolver::new(module.package());
         module.accept(&mut visitor).unwrap();
 
         let expected: HashSet<Rule, RandomState> =
@@ -349,7 +423,7 @@ mod tests {
         let expected = Module::new(vec!["opa".to_string(), "examples".to_string()], rules);
 
         let mut module = Module::try_from(parse_module(input).unwrap()).unwrap();
-        let mut visitor = ModuleNameResolution::new(module.package());
+        let mut visitor = RuleResolver::new(module.package());
         module.accept(&mut visitor).unwrap();
 
         let expected: HashSet<Rule, RandomState> =
@@ -409,7 +483,7 @@ mod tests {
         let expected = Module::new(vec!["opa".to_string(), "examples".to_string()], rules);
 
         let mut module = Module::try_from(parse_module(input).unwrap()).unwrap();
-        let mut visitor = ModuleNameResolution::new(module.package());
+        let mut visitor = RuleResolver::new(module.package());
         module.accept(&mut visitor).unwrap();
 
         let expected: HashSet<Rule, RandomState> =

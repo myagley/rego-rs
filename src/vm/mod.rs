@@ -17,6 +17,27 @@ static UNDEFINED: Value = Value::Undefined;
 const INPUT_ROOT: &str = "input";
 const DATA_ROOT: &str = "data";
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Instruction {
+    LoadGlobal,
+    LoadImmediate(Value),
+    BinOp(BinOp),
+    Collect(CollectType, usize),
+    Index,
+}
+
+impl fmt::Display for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::LoadGlobal => write!(f, "loadg"),
+            Self::LoadImmediate(v) => write!(f, "loadi {}", v),
+            Self::BinOp(op) => write!(f, "binop {}", op),
+            Self::Collect(ty, size) => write!(f, "collect {} {}", ty, size),
+            Self::Index => write!(f, "index"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinOp {
     Add,
@@ -82,27 +103,6 @@ impl fmt::Display for CollectType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Instruction {
-    LoadGlobal,
-    LoadImmediate(Value),
-    BinOp(BinOp),
-    Collect(CollectType, usize),
-    Index,
-}
-
-impl fmt::Display for Instruction {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::LoadGlobal => write!(f, "loadg"),
-            Self::LoadImmediate(v) => write!(f, "loadi {}", v),
-            Self::BinOp(op) => write!(f, "binop {}", op),
-            Self::Collect(ty, size) => write!(f, "collect {} {}", ty, size),
-            Self::Index => write!(f, "index"),
-        }
-    }
-}
-
 #[derive(Debug, PartialEq)]
 pub enum Error {
     InvalidNumArgs(usize, usize),
@@ -143,11 +143,16 @@ pub struct CompiledQuery {
 
 impl CompiledQuery {
     pub fn from_query(mut expr: Expr) -> Result<Self, Error> {
-        expr.accept(&mut const_eval::ConstEval)?;
+        // Input resolution
+        let mut input = name_resolve::InputResolver::new();
+        expr.accept(&mut input)?;
 
-        // name resolution
-        let mut names = name_resolve::ModuleNameResolution::new(&vec![]);
-        expr.accept(&mut names)?;
+        // rule resolution
+        let mut rules = name_resolve::RuleResolver::new(&vec![]);
+        expr.accept(&mut rules)?;
+
+        // const eval
+        expr.accept(&mut const_eval::ConstEval)?;
 
         let mut codegen = codegen::Codegen::new();
         expr.accept(&mut codegen)?;
@@ -162,12 +167,16 @@ impl CompiledQuery {
         let mut codegen = codegen::Codegen::new();
 
         for module in &mut modules {
+            // Input resolution
+            let mut input = name_resolve::InputResolver::new();
+            module.accept(&mut input)?;
+
+            // Rule resolution
+            let mut rules = name_resolve::RuleResolver::new(module.package());
+            module.accept(&mut rules)?;
+
             // Const Eval
             module.accept(&mut const_eval::ConstEval)?;
-
-            // Name resolution
-            let mut names = name_resolve::ModuleNameResolution::new(module.package());
-            module.accept(&mut names)?;
 
             // Codegen
             module.accept(&mut codegen)?;

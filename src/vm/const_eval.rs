@@ -6,6 +6,7 @@ use crate::value::Value;
 
 use crate::vm::Error;
 
+/// Evaluates and collapses expressions containing only constants
 pub struct ConstEval;
 
 impl ConstEval {

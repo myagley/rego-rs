@@ -1,6 +1,7 @@
 use crate::ast::*;
 use crate::vm::{BinOp, CollectType, Error, Instruction};
 
+/// Converts AST to a vec of instructions
 pub struct Codegen {
     instructions: Vec<Instruction>,
 }
