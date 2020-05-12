@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::mem;
 
 use crate::ast::*;
-
+use crate::value::Value;
 use crate::vm::{Error, DATA_ROOT, INPUT_ROOT};
 
 // TODO(miyagley) handle import name resolution
@@ -165,6 +165,20 @@ impl Visitor for ModuleNameResolution {
                             Expr::RuleCall(rule)
                         };
                         mem::replace(expr, new_expr);
+                    }
+                    &[Expr::Var(ref s), ref tail @ ..] => {
+                        if s == INPUT_ROOT {
+                            let mut items = vec![Expr::InputRoot];
+                            for item in tail {
+                                if let Expr::Var(v) = item {
+                                    let new_var = Expr::Scalar(Value::String(v.clone()));
+                                    items.push(new_var);
+                                } else {
+                                    items.push(item.clone());
+                                }
+                            }
+                            mem::replace(expr, Expr::Index(items));
+                        }
                     }
                     // &[Expr::Var(ref s), ..] => {
                     //     // TODO(miyagley) handle imports
