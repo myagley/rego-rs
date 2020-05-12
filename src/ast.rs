@@ -189,10 +189,13 @@ pub enum Expr {
     Scalar(Value),
     Collection(Collection),
     Comprehension(Comprehension),
-    Var(String),
-    VarBrack(String),
+
     BinOp(Box<Expr>, Opcode, Box<Expr>),
     Index(Vec<Expr>),
+
+    Var(String),
+    VarBrack(String),
+    InputRoot,
 
     RuleCall(String),
     FuncCall(String, Vec<Expr>),

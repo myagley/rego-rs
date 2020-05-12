@@ -95,7 +95,7 @@ impl Visitor for Codegen {
             Expr::Collection(collection) => self.push_collection(collection)?,
             Expr::Comprehension(compr) => self.push_comprehension(compr)?,
             // Root index into a global
-            Expr::Var(ref s) if s == INPUT_ROOT => self.instructions.push(Instruction::LoadGlobal),
+            Expr::InputRoot => self.instructions.push(Instruction::LoadGlobal),
             // String index
             Expr::Var(var) => self
                 .instructions

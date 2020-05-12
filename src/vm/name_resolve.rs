@@ -3,7 +3,7 @@ use std::mem;
 
 use crate::ast::*;
 
-use crate::vm::{Error, DATA_ROOT};
+use crate::vm::{Error, DATA_ROOT, INPUT_ROOT};
 
 // TODO(miyagley) handle import name resolution
 
@@ -114,16 +114,27 @@ impl Visitor for ModuleNameResolution {
                     body.accept(self)?;
                 }
             },
+            Expr::Var(s) if s == INPUT_ROOT => {
+                mem::replace(expr, Expr::InputRoot);
+            }
             Expr::Var(s) if self.local_rules.contains(s) => {
                 let new_var = format!("{}.{}.{}", DATA_ROOT, self.package, s);
                 mem::replace(expr, Expr::RuleCall(new_var));
             }
-            Expr::Var(_) => (),
+            Expr::Var(_) => {
+                // local variable
+            }
+            Expr::VarBrack(s) if s == INPUT_ROOT => {
+                mem::replace(expr, Expr::InputRoot);
+            }
             Expr::VarBrack(s) if self.local_rules.contains(s) => {
                 let new_var = format!("{}.{}.{}", DATA_ROOT, self.package, s);
                 mem::replace(expr, Expr::RuleCall(new_var));
             }
-            Expr::VarBrack(_) => (),
+            Expr::VarBrack(_) => {
+                // local variable
+            }
+            Expr::InputRoot => (),
             Expr::BinOp(ref mut left, _op, ref mut right) => {
                 left.accept(self)?;
                 right.accept(self)?;
@@ -155,7 +166,7 @@ impl Visitor for ModuleNameResolution {
                         };
                         mem::replace(expr, new_expr);
                     }
-                    // &[Expr::Var(ref _s), ..] => {
+                    // &[Expr::Var(ref s), ..] => {
                     //     // TODO(miyagley) handle imports
                     // }
                     _ => self.visit_vec(v)?,

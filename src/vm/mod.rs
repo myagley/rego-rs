@@ -144,6 +144,11 @@ pub struct CompiledQuery {
 impl CompiledQuery {
     pub fn from_query(mut expr: Expr) -> Result<Self, Error> {
         expr.accept(&mut const_eval::ConstEval)?;
+
+        // name resolution
+        let mut names = name_resolve::ModuleNameResolution::new(&vec![]);
+        expr.accept(&mut names)?;
+
         let mut codegen = codegen::Codegen::new();
         expr.accept(&mut codegen)?;
 
