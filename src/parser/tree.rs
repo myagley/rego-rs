@@ -284,7 +284,8 @@ pub enum RefTarget<'input> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum RefArg<'input> {
     Collection(Collection<'input>),
-    Var(&'input str),
+    VarDot(&'input str),
+    VarBrack(&'input str),
     Scalar(Value),
     Anon,
 }

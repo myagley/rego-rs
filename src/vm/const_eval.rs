@@ -109,6 +109,7 @@ impl Visitor for ConstEval {
                 }
             },
             Expr::Var(_) => (),
+            Expr::VarBrack(_) => (),
             Expr::BinOp(ref mut left, op, ref mut right) => {
                 left.accept(self)?;
                 right.accept(self)?;

@@ -119,11 +119,48 @@ impl Visitor for ModuleNameResolution {
                 mem::replace(expr, Expr::RuleCall(new_var));
             }
             Expr::Var(_) => (),
+            Expr::VarBrack(s) if self.local_rules.contains(s) => {
+                let new_var = format!("{}.{}.{}", DATA_ROOT, self.package, s);
+                mem::replace(expr, Expr::RuleCall(new_var));
+            }
+            Expr::VarBrack(_) => (),
             Expr::BinOp(ref mut left, _op, ref mut right) => {
                 left.accept(self)?;
                 right.accept(self)?;
             }
-            Expr::Index(v) => self.visit_vec(v)?,
+            Expr::Index(v) => {
+                match v.as_slice() {
+                    &[Expr::Var(ref s), ..] if s == DATA_ROOT => {
+                        // take while Var
+                        let (head, mut tail): (Vec<Expr>, Vec<Expr>) = v
+                            .clone()
+                            .into_iter()
+                            .partition(|i| matches!(i, Expr::Var(_)));
+                        let rule = head
+                            .iter()
+                            .filter_map(|e| match e {
+                                Expr::Var(s) => Some(s.as_str()),
+                                _ => None,
+                            })
+                            .collect::<Vec<&str>>()
+                            .join(".");
+                        let new_expr = if tail.len() > 0 {
+                            let mut items = vec![Expr::RuleCall(rule)];
+                            items.append(&mut tail);
+                            let mut new_expr = Expr::Index(items);
+                            new_expr.accept(self)?;
+                            new_expr
+                        } else {
+                            Expr::RuleCall(rule)
+                        };
+                        mem::replace(expr, new_expr);
+                    }
+                    // &[Expr::Var(ref _s), ..] => {
+                    //     // TODO(miyagley) handle imports
+                    // }
+                    _ => self.visit_vec(v)?,
+                }
+            }
             Expr::RuleCall(_) => (),
             Expr::FuncCall(_, args) => self.visit_vec(args)?,
             Expr::Not(not) => not.accept(self)?,
@@ -249,6 +286,114 @@ mod tests {
 
         assert_eq!(
             HashSet::from_iter(vec!["a".to_string(), "b".to_string()]),
+            visitor.local_rules
+        );
+    }
+
+    #[test]
+    fn test_rule_indexed_expr_expansion() {
+        let input = r###"
+        package opa.examples
+
+        a = 2 { data.opa.examples.b == 3 }
+        b := 3
+        "###;
+
+        let rules = vec![
+            Rule::new(
+                "data.opa.examples.b".to_string(),
+                None,
+                vec![Clause::Complete {
+                    value: Expr::Scalar(Value::Number(3.into())),
+                    body: RuleBody::Query(Expr::Scalar(Value::Bool(true))),
+                }],
+            ),
+            Rule::new(
+                "data.opa.examples.a".to_string(),
+                None,
+                vec![Clause::Complete {
+                    value: Expr::Scalar(Value::Number(2.into())),
+                    body: RuleBody::Query(Expr::BinOp(
+                        Box::new(Expr::RuleCall("data.opa.examples.b".to_string())),
+                        Opcode::EqEq,
+                        Box::new(Expr::Scalar(Value::Number(3.into()))),
+                    )),
+                }],
+            ),
+        ];
+        let expected = Module::new(vec!["opa".to_string(), "examples".to_string()], rules);
+
+        let mut module = Module::try_from(parse_module(input).unwrap()).unwrap();
+        let mut visitor = ModuleNameResolution::new(module.package());
+        module.accept(&mut visitor).unwrap();
+
+        let expected: HashSet<Rule, RandomState> =
+            HashSet::from_iter(expected.rules().iter().cloned());
+        let result = HashSet::from_iter(module.rules().iter().cloned());
+        assert_eq!(expected, result);
+
+        assert_eq!(
+            HashSet::from_iter(vec!["a".to_string(), "b".to_string()]),
+            visitor.local_rules
+        );
+    }
+
+    #[test]
+    fn test_rule_indexed_with_index_expr_expansion() {
+        let input = r###"
+        package opa.examples
+
+        a = 2 { data.opa.examples.b[c] == 3 }
+        b := 3
+        c := 4
+        "###;
+
+        let rules = vec![
+            Rule::new(
+                "data.opa.examples.b".to_string(),
+                None,
+                vec![Clause::Complete {
+                    value: Expr::Scalar(Value::Number(3.into())),
+                    body: RuleBody::Query(Expr::Scalar(Value::Bool(true))),
+                }],
+            ),
+            Rule::new(
+                "data.opa.examples.c".to_string(),
+                None,
+                vec![Clause::Complete {
+                    value: Expr::Scalar(Value::Number(4.into())),
+                    body: RuleBody::Query(Expr::Scalar(Value::Bool(true))),
+                }],
+            ),
+            Rule::new(
+                "data.opa.examples.a".to_string(),
+                None,
+                vec![Clause::Complete {
+                    value: Expr::Scalar(Value::Number(2.into())),
+                    body: RuleBody::Query(Expr::BinOp(
+                        Box::new(Expr::Index(vec![
+                            Expr::RuleCall("data.opa.examples.b".to_string()),
+                            Expr::RuleCall("data.opa.examples.c".to_string()),
+                        ])),
+                        Opcode::EqEq,
+                        Box::new(Expr::Scalar(Value::Number(3.into()))),
+                    )),
+                }],
+            ),
+        ];
+        let expected = Module::new(vec!["opa".to_string(), "examples".to_string()], rules);
+
+        let mut module = Module::try_from(parse_module(input).unwrap()).unwrap();
+        let mut visitor = ModuleNameResolution::new(module.package());
+        module.accept(&mut visitor).unwrap();
+
+        let expected: HashSet<Rule, RandomState> =
+            HashSet::from_iter(expected.rules().iter().cloned());
+        let result = HashSet::from_iter(module.rules().iter().cloned());
+        assert_eq!(expected, result);
+
+        assert_eq!(
+            HashSet::from_iter(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
             visitor.local_rules
         );
     }

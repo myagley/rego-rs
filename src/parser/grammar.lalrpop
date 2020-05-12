@@ -217,7 +217,7 @@ RefArgBrack: RefArg<'input> = {
 #[inline]
 RefArgBrackParam: RefArg<'input> = {
     Scalar => RefArg::Scalar(<>),
-    Var => RefArg::Var(<>),
+    Var => RefArg::VarBrack(<>),
     Array => RefArg::Collection(<>),
     Object => RefArg::Collection(<>),
     Set => RefArg::Collection(<>),
@@ -226,7 +226,7 @@ RefArgBrackParam: RefArg<'input> = {
 
 #[inline]
 RefArgDot: RefArg<'input> = {
-    "." <Var> => RefArg::Scalar(Value::String(<>.to_string())),
+    "." <Var> => RefArg::VarDot(<>),
 };
 
 // There is some ambiguity in the grammar

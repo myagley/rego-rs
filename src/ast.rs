@@ -190,6 +190,7 @@ pub enum Expr {
     Collection(Collection),
     Comprehension(Comprehension),
     Var(String),
+    VarBrack(String),
     BinOp(Box<Expr>, Opcode, Box<Expr>),
     Index(Vec<Expr>),
 
@@ -540,7 +541,8 @@ impl TryFrom<tree::RefArg<'_>> for Expr {
     fn try_from(r: tree::RefArg<'_>) -> Result<Expr, Self::Error> {
         let expr = match r {
             tree::RefArg::Scalar(v) => Expr::Scalar(v),
-            tree::RefArg::Var(s) => Expr::Var(s.to_owned()),
+            tree::RefArg::VarDot(s) => Expr::Var(s.to_owned()),
+            tree::RefArg::VarBrack(s) => Expr::VarBrack(s.to_owned()),
             tree::RefArg::Collection(collection) => Expr::try_from(collection)?,
             tree::RefArg::Anon => return Err(Error::Unsupported("anonymous variables")),
         };

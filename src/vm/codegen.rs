@@ -1,4 +1,5 @@
 use crate::ast::*;
+use crate::value::Value;
 use crate::vm::{BinOp, CollectType, Error, Instruction, INPUT_ROOT};
 
 pub struct Codegen {
@@ -93,7 +94,15 @@ impl Visitor for Codegen {
             Expr::Scalar(value) => self.instructions.push(Instruction::Const(value.clone())),
             Expr::Collection(collection) => self.push_collection(collection)?,
             Expr::Comprehension(compr) => self.push_comprehension(compr)?,
+            // Root index into a global
             Expr::Var(ref s) if s == INPUT_ROOT => self.instructions.push(Instruction::LoadGlobal),
+            // String index
+            Expr::Var(var) => self
+                .instructions
+                .push(Instruction::Const(Value::String(var.clone()))),
+            Expr::VarBrack(var) => self
+                .instructions
+                .push(Instruction::Const(Value::String(var.clone()))),
             Expr::BinOp(left, op, right) => {
                 left.accept(self)?;
                 right.accept(self)?;
