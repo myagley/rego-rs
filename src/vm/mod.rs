@@ -84,21 +84,21 @@ impl fmt::Display for CollectType {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
-    Const(Value),
+    LoadGlobal,
+    LoadImmediate(Value),
     BinOp(BinOp),
     Collect(CollectType, usize),
     Index,
-    LoadGlobal,
 }
 
 impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::Const(v) => write!(f, "const {}", v),
+            Self::LoadGlobal => write!(f, "loadg"),
+            Self::LoadImmediate(v) => write!(f, "loadi {}", v),
             Self::BinOp(op) => write!(f, "binop {}", op),
             Self::Collect(ty, size) => write!(f, "collect {} {}", ty, size),
             Self::Index => write!(f, "index"),
-            Self::LoadGlobal => write!(f, "loadg"),
         }
     }
 }
@@ -219,7 +219,8 @@ impl<'a> Instance<'a> {
 
         while pc < self.instructions.len() {
             match self.instructions[pc] {
-                Const(ref v) => self.value_stack.push(v)?,
+                LoadGlobal => self.value_stack.push(&self.input)?,
+                LoadImmediate(ref v) => self.value_stack.push(v)?,
                 BinOp(binop) => {
                     let right = self.value_stack.pop()?;
                     let left = self.value_stack.pop()?;
@@ -262,9 +263,6 @@ impl<'a> Instance<'a> {
                     let result = target.get(arg).unwrap_or_else(|| &UNDEFINED);
                     self.value_stack.push(result)?;
                 }
-                LoadGlobal => {
-                    self.value_stack.push(&self.input)?;
-                }
             }
             pc += 1
         }
@@ -283,8 +281,8 @@ mod tests {
     #[test]
     fn eval() {
         let instructions = vec![
-            Instruction::Const(Value::Number(3.into())),
-            Instruction::Const(Value::Number(4.into())),
+            Instruction::LoadImmediate(Value::Number(3.into())),
+            Instruction::LoadImmediate(Value::Number(4.into())),
             Instruction::BinOp(BinOp::Add),
         ];
 

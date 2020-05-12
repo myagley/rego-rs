@@ -1,6 +1,6 @@
 use crate::ast::*;
 use crate::value::Value;
-use crate::vm::{BinOp, CollectType, Error, Instruction, INPUT_ROOT};
+use crate::vm::{BinOp, CollectType, Error, Instruction};
 
 pub struct Codegen {
     instructions: Vec<Instruction>,
@@ -91,7 +91,9 @@ impl Visitor for Codegen {
 
     fn visit_expr(&mut self, expr: &mut Expr) -> Result<Self::Value, Self::Error> {
         match expr {
-            Expr::Scalar(value) => self.instructions.push(Instruction::Const(value.clone())),
+            Expr::Scalar(value) => self
+                .instructions
+                .push(Instruction::LoadImmediate(value.clone())),
             Expr::Collection(collection) => self.push_collection(collection)?,
             Expr::Comprehension(compr) => self.push_comprehension(compr)?,
             // Root index into a global
@@ -99,10 +101,10 @@ impl Visitor for Codegen {
             // String index
             Expr::Var(var) => self
                 .instructions
-                .push(Instruction::Const(Value::String(var.clone()))),
+                .push(Instruction::LoadImmediate(Value::String(var.clone()))),
             Expr::VarBrack(var) => self
                 .instructions
-                .push(Instruction::Const(Value::String(var.clone()))),
+                .push(Instruction::LoadImmediate(Value::String(var.clone()))),
             Expr::BinOp(left, op, right) => {
                 left.accept(self)?;
                 right.accept(self)?;
