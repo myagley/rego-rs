@@ -256,7 +256,9 @@ impl Visitor for InputResolver {
                             items.push(item.clone());
                         }
                     }
-                    mem::replace(expr, Expr::Index(items));
+                    let mut new_expr = Expr::Index(items);
+                    new_expr.accept(self)?;
+                    mem::replace(expr, new_expr);
                 }
                 _ => self.visit_vec(v)?,
             },
