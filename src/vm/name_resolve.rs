@@ -116,7 +116,7 @@ impl Visitor for ModuleNameResolution {
             },
             Expr::Var(s) if self.local_rules.contains(s) => {
                 let new_var = format!("{}.{}.{}", DATA_ROOT, self.package, s);
-                mem::replace(expr, Expr::Var(new_var));
+                mem::replace(expr, Expr::RuleCall(new_var));
             }
             Expr::Var(_) => (),
             Expr::BinOp(ref mut left, _op, ref mut right) => {
@@ -124,7 +124,8 @@ impl Visitor for ModuleNameResolution {
                 right.accept(self)?;
             }
             Expr::Index(v) => self.visit_vec(v)?,
-            Expr::Call(_, args) => self.visit_vec(args)?,
+            Expr::RuleCall(_) => (),
+            Expr::FuncCall(_, args) => self.visit_vec(args)?,
             Expr::Not(not) => not.accept(self)?,
             Expr::Some(_) => (),
         }
@@ -228,7 +229,7 @@ mod tests {
                 vec![Clause::Complete {
                     value: Expr::Scalar(Value::Number(2.into())),
                     body: RuleBody::Query(Expr::BinOp(
-                        Box::new(Expr::Var("data.opa.examples.b".to_string())),
+                        Box::new(Expr::RuleCall("data.opa.examples.b".to_string())),
                         Opcode::EqEq,
                         Box::new(Expr::Scalar(Value::Number(3.into()))),
                     )),

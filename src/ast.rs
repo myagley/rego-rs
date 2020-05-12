@@ -190,10 +190,11 @@ pub enum Expr {
     Collection(Collection),
     Comprehension(Comprehension),
     Var(String),
-
     BinOp(Box<Expr>, Opcode, Box<Expr>),
     Index(Vec<Expr>),
-    Call(String, Vec<Expr>),
+
+    RuleCall(String),
+    FuncCall(String, Vec<Expr>),
 
     Not(Box<Expr>),
     Some(Vec<String>),
@@ -592,7 +593,7 @@ impl TryFrom<tree::ExprCall<'_>> for Expr {
         items.push(target);
         items.append(&mut new_args);
         // TODO fix this
-        Ok(Expr::Call("hello".to_string(), items))
+        Ok(Expr::FuncCall("hello".to_string(), items))
     }
 }
 

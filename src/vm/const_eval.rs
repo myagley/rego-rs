@@ -160,7 +160,8 @@ impl Visitor for ConstEval {
                 }
             }
             Expr::Index(v) => self.visit_vec(v)?,
-            Expr::Call(_, args) => self.visit_vec(args)?,
+            Expr::RuleCall(_) => (),
+            Expr::FuncCall(_, args) => self.visit_vec(args)?,
             Expr::Not(not) => not.accept(self)?,
             Expr::Some(_) => (),
         };
