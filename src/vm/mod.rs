@@ -6,9 +6,7 @@ use typed_arena::Arena;
 use crate::ast::*;
 use crate::value::{Map, Set, Value};
 
-mod codegen;
-mod const_eval;
-mod name_resolve;
+mod passes;
 mod stack;
 
 pub use stack::Stack;
@@ -144,17 +142,17 @@ pub struct CompiledQuery {
 impl CompiledQuery {
     pub fn from_query(mut expr: Expr) -> Result<Self, Error> {
         // Input resolution
-        let mut input = name_resolve::InputResolver::new();
+        let mut input = passes::InputResolver::new();
         expr.accept(&mut input)?;
 
         // rule resolution
-        let mut rules = name_resolve::RuleResolver::new(&vec![]);
+        let mut rules = passes::RuleResolver::new(&vec![]);
         expr.accept(&mut rules)?;
 
         // const eval
-        expr.accept(&mut const_eval::ConstEval)?;
+        expr.accept(&mut passes::ConstEval)?;
 
-        let mut codegen = codegen::Codegen::new();
+        let mut codegen = passes::Codegen::new();
         expr.accept(&mut codegen)?;
 
         let query = CompiledQuery {
@@ -164,26 +162,26 @@ impl CompiledQuery {
     }
 
     pub fn compile(mut expr: Expr, mut modules: Vec<Module>) -> Result<Self, Error> {
-        let mut codegen = codegen::Codegen::new();
+        let mut codegen = passes::Codegen::new();
 
         for module in &mut modules {
             // Input resolution
-            let mut input = name_resolve::InputResolver::new();
+            let mut input = passes::InputResolver::new();
             module.accept(&mut input)?;
 
             // Rule resolution
-            let mut rules = name_resolve::RuleResolver::new(module.package());
+            let mut rules = passes::RuleResolver::new(module.package());
             module.accept(&mut rules)?;
 
             // Const Eval
-            module.accept(&mut const_eval::ConstEval)?;
+            module.accept(&mut passes::ConstEval)?;
 
             // Codegen
             module.accept(&mut codegen)?;
         }
 
         // Compile the query
-        expr.accept(&mut const_eval::ConstEval)?;
+        expr.accept(&mut passes::ConstEval)?;
         expr.accept(&mut codegen)?;
 
         let query = CompiledQuery {
