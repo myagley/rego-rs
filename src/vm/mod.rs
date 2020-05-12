@@ -1,13 +1,12 @@
-use std::convert::TryFrom;
 use std::fmt;
 use std::sync::Arc;
 
 use typed_arena::Arena;
 
 use crate::ast::*;
-use crate::parser::tree::Query;
 use crate::value::{Map, Set, Value};
 
+mod codegen;
 mod const_eval;
 mod name_resolve;
 mod stack;
@@ -19,7 +18,7 @@ const INPUT_ROOT: &str = "input";
 const DATA_ROOT: &str = "data";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum BinOp {
+pub enum BinOp {
     Add,
     Sub,
     Mul,
@@ -67,7 +66,7 @@ impl fmt::Display for BinOp {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum CollectType {
+pub enum CollectType {
     Array,
     Set,
     Map,
@@ -84,7 +83,7 @@ impl fmt::Display for CollectType {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum Instruction {
+pub enum Instruction {
     Const(Value),
     BinOp(BinOp),
     Collect(CollectType, usize),
@@ -143,15 +142,38 @@ pub struct CompiledQuery {
 }
 
 impl CompiledQuery {
-    pub fn from_query(query: Query<'_>) -> Result<Self, Error> {
-        let mut expr = Expr::try_from(query).unwrap();
-        // expr.accept(&mut const_eval::ConstEval)?;
-        let mut compiler = Compiler::new();
-        expr.accept(&mut compiler)?;
+    pub fn from_query(mut expr: Expr) -> Result<Self, Error> {
+        expr.accept(&mut const_eval::ConstEval)?;
+        let mut codegen = codegen::Codegen::new();
+        expr.accept(&mut codegen)?;
 
-        let Compiler { instructions } = compiler;
         let query = CompiledQuery {
-            instructions: Arc::new(instructions),
+            instructions: Arc::new(codegen.into_instructions()),
+        };
+        Ok(query)
+    }
+
+    pub fn compile(mut expr: Expr, mut modules: Vec<Module>) -> Result<Self, Error> {
+        let mut codegen = codegen::Codegen::new();
+
+        for module in &mut modules {
+            // Const Eval
+            module.accept(&mut const_eval::ConstEval)?;
+
+            // Name resolution
+            let mut names = name_resolve::ModuleNameResolution::new(module.package());
+            module.accept(&mut names)?;
+
+            // Codegen
+            module.accept(&mut codegen)?;
+        }
+
+        // Compile the query
+        expr.accept(&mut const_eval::ConstEval)?;
+        expr.accept(&mut codegen)?;
+
+        let query = CompiledQuery {
+            instructions: Arc::new(codegen.into_instructions()),
         };
         Ok(query)
     }
@@ -245,119 +267,11 @@ impl<'a> Instance<'a> {
     }
 }
 
-pub struct Compiler {
-    instructions: Vec<Instruction>,
-}
-
-impl Compiler {
-    pub fn new() -> Self {
-        Compiler {
-            instructions: Vec::new(),
-        }
-    }
-
-    fn push_op(&mut self, opcode: Opcode) {
-        match opcode {
-            Opcode::Add => self.instructions.push(Instruction::BinOp(BinOp::Add)),
-            Opcode::Sub => self.instructions.push(Instruction::BinOp(BinOp::Sub)),
-            Opcode::Mul => self.instructions.push(Instruction::BinOp(BinOp::Mul)),
-            Opcode::Div => self.instructions.push(Instruction::BinOp(BinOp::Div)),
-            Opcode::Lt => self.instructions.push(Instruction::BinOp(BinOp::Lt)),
-            Opcode::Lte => self.instructions.push(Instruction::BinOp(BinOp::Lte)),
-            Opcode::Gt => self.instructions.push(Instruction::BinOp(BinOp::Gt)),
-            Opcode::Gte => self.instructions.push(Instruction::BinOp(BinOp::Gte)),
-            Opcode::EqEq => self.instructions.push(Instruction::BinOp(BinOp::EqEq)),
-            Opcode::Ne => self.instructions.push(Instruction::BinOp(BinOp::Ne)),
-            _ => todo!(),
-        }
-    }
-
-    fn push_collection(&mut self, collection: &mut Collection) -> Result<(), Error> {
-        match collection {
-            Collection::Array(array) => {
-                let len = array.len();
-
-                // push the terms
-                for term in array.into_iter().rev() {
-                    term.accept(self)?;
-                }
-
-                // push the collect instruction
-                self.instructions
-                    .push(Instruction::Collect(CollectType::Array, len));
-            }
-            Collection::Set(set) => {
-                let len = set.len();
-
-                // push the terms
-                for term in set {
-                    term.accept(self)?;
-                }
-
-                // push the collect instruction
-                self.instructions
-                    .push(Instruction::Collect(CollectType::Set, len));
-            }
-            Collection::Object(obj) => {
-                let len = obj.len();
-
-                // push the terms
-                for (key, value) in obj {
-                    key.accept(self)?;
-                    value.accept(self)?;
-                }
-
-                // push the collect instruction
-                self.instructions
-                    .push(Instruction::Collect(CollectType::Map, len));
-            }
-        }
-        Ok(())
-    }
-
-    fn push_comprehension(&mut self, _comprehension: &mut Comprehension) -> Result<(), Error> {
-        Ok(())
-    }
-}
-
-impl Visitor for Compiler {
-    type Value = ();
-    type Error = Error;
-
-    fn visit_module(&mut self, _module: &mut Module) -> Result<Self::Value, Self::Error> {
-        Ok(())
-    }
-
-    fn visit_expr(&mut self, expr: &mut Expr) -> Result<Self::Value, Self::Error> {
-        match expr {
-            Expr::Scalar(value) => self.instructions.push(Instruction::Const(value.clone())),
-            Expr::Collection(collection) => self.push_collection(collection)?,
-            Expr::Comprehension(compr) => self.push_comprehension(compr)?,
-            Expr::Var(ref s) if s == INPUT_ROOT => self.instructions.push(Instruction::LoadGlobal),
-            Expr::BinOp(left, op, right) => {
-                left.accept(self)?;
-                right.accept(self)?;
-                self.push_op(*op);
-            }
-            Expr::Index(refs) => {
-                let mut iter = refs.into_iter();
-                if let Some(head) = iter.next() {
-                    head.accept(self)?;
-                    for next in iter {
-                        next.accept(self)?;
-                        self.instructions.push(Instruction::Index);
-                    }
-                }
-            }
-            _ => todo!(),
-        }
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::convert::TryFrom;
 
     use crate::parser::parse_query;
 
@@ -380,7 +294,8 @@ mod tests {
     fn compile() {
         let input = "(3 + 4) == 3";
         let term = parse_query(&input).unwrap();
-        let query = CompiledQuery::from_query(term).unwrap();
+        let expr = Expr::try_from(term).unwrap();
+        let query = CompiledQuery::from_query(expr).unwrap();
         println!("{}", query);
         let result = query.eval(Value::Undefined);
         println!("result: {:?}", result);
@@ -390,7 +305,8 @@ mod tests {
     fn test_array() {
         let input = "[[3, 2], 2, 3]";
         let term = parse_query(&input).unwrap();
-        let query = CompiledQuery::from_query(term).unwrap();
+        let expr = Expr::try_from(term).unwrap();
+        let query = CompiledQuery::from_query(expr).unwrap();
         println!("{}", query);
         let result = query
             .eval(Value::Undefined)
@@ -409,7 +325,8 @@ mod tests {
     fn test_set() {
         let input = "{[3, 2], 2, 3}";
         let term = parse_query(&input).unwrap();
-        let query = CompiledQuery::from_query(term).unwrap();
+        let expr = Expr::try_from(term).unwrap();
+        let query = CompiledQuery::from_query(expr).unwrap();
         println!("{}", query);
         let result = query
             .eval(Value::Undefined)
@@ -430,7 +347,8 @@ mod tests {
     fn test_object() {
         let input = "{\"three\": 3, \"two\": 2}";
         let term = parse_query(&input).unwrap();
-        let query = CompiledQuery::from_query(term).unwrap();
+        let expr = Expr::try_from(term).unwrap();
+        let query = CompiledQuery::from_query(expr).unwrap();
         println!("{}", query);
         let result = query
             .eval(Value::Undefined)
@@ -447,7 +365,8 @@ mod tests {
     fn test_array_index() {
         let input = "[[3, 2], 2, 3][0][1]";
         let term = parse_query(&input).unwrap();
-        let query = CompiledQuery::from_query(term).unwrap();
+        let expr = Expr::try_from(term).unwrap();
+        let query = CompiledQuery::from_query(expr).unwrap();
         let result = query.eval(Value::Undefined).unwrap();
         let expected = Value::Number(2.into());
         assert_eq!(expected, result);
@@ -457,7 +376,8 @@ mod tests {
     fn test_object_index() {
         let input = "{\"three\": 3, \"two\": 2}[\"three\"]";
         let term = parse_query(&input).unwrap();
-        let query = CompiledQuery::from_query(term).unwrap();
+        let expr = Expr::try_from(term).unwrap();
+        let query = CompiledQuery::from_query(expr).unwrap();
         let result = query.eval(Value::Undefined).unwrap();
         let expected = Value::Number(3.into());
         assert_eq!(expected, result);
@@ -467,7 +387,8 @@ mod tests {
     fn test_data_input() {
         let query = "input.a == 3";
         let term = parse_query(&query).unwrap();
-        let query = CompiledQuery::from_query(term).unwrap();
+        let expr = Expr::try_from(term).unwrap();
+        let query = CompiledQuery::from_query(expr).unwrap();
         let mut input = Map::new();
         input.insert(Value::String("a".to_string()), Value::Number(3.into()));
         let result = query.eval(Value::Object(input)).unwrap();
