@@ -299,6 +299,10 @@ impl Value {
     pub fn is_null(&self) -> bool {
         self.as_null().is_some()
     }
+
+    pub fn is_undefined(&self) -> bool {
+        matches!(*self, Value::Undefined)
+    }
 }
 
 struct Type<'a>(&'a Value);

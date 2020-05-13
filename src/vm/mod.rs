@@ -25,6 +25,10 @@ pub enum Instruction {
     Collect(CollectType, usize),
     /// Pop reference and target from opstack, index target by reference, push result to opstack
     Index,
+    /// Duplicates the top of the stack
+    Dup,
+    /// Discard the top value on the stack
+    Pop,
 
     /// Pop two operands from opstack, apply binop, and push result to opstack
     BinOp(BinOp),
@@ -37,6 +41,9 @@ pub enum Instruction {
     Return,
     /// Jump to immediate instruction
     Jump(usize),
+
+    /// Pop value off of opstack, branch to calculated pc if undefined
+    BranchUndefined(isize),
 }
 
 impl fmt::Display for Instruction {
@@ -46,11 +53,14 @@ impl fmt::Display for Instruction {
             Self::LoadImmediate(v) => write!(f, "loadi {}", v),
             Self::Collect(ty, size) => write!(f, "collect {} {}", ty, size),
             Self::Index => write!(f, "index"),
+            Self::Dup => write!(f, "dup"),
+            Self::Pop => write!(f, "pop"),
             Self::BinOp(op) => write!(f, "binop {}", op),
             Self::Label(label) => write!(f, "label({})", label),
             Self::Call(pc) => write!(f, "call {}", pc),
             Self::Return => write!(f, "ret"),
             Self::Jump(pc) => write!(f, "jump {}", pc),
+            Self::BranchUndefined(offset) => write!(f, "bundef {}", offset),
         }
     }
 }
@@ -132,6 +142,7 @@ pub enum Error {
     InvalidValueType(&'static str),
     StackUnderflow,
     StackOverflow,
+    AddressUnderflow,
 }
 
 impl fmt::Display for Error {
@@ -147,6 +158,7 @@ impl fmt::Display for Error {
             }
             Error::StackUnderflow => write!(f, "stack underflow"),
             Error::StackOverflow => write!(f, "stack overflow"),
+            Error::AddressUnderflow => write!(f, "pc is negative after applying branch offset"),
         }
     }
 }
@@ -218,8 +230,8 @@ impl CompiledQuery {
     pub fn eval(&self, input: Value) -> Result<Value, Error> {
         let mut instance = Instance {
             instructions: self.instructions.clone(),
-            value_stack: Stack::new(),
-            call_stack: Stack::new(),
+            opstack: Stack::new(),
+            callstack: Stack::new(),
             heap: Arena::new(),
             locals: HashMap::new(),
             input,
@@ -242,8 +254,8 @@ impl fmt::Display for CompiledQuery {
 
 struct Instance<'m> {
     instructions: Arc<Vec<Instruction>>,
-    value_stack: Stack<&'m Value>,
-    call_stack: Stack<Frame<'m>>,
+    opstack: Stack<&'m Value>,
+    callstack: Stack<Frame<'m>>,
     heap: Arena<Value>,
     locals: HashMap<usize, &'m Value>,
     input: Value,
@@ -254,64 +266,74 @@ impl<'a> Instance<'a> {
         use Instruction::*;
 
         let mut pc = 0;
-        self.value_stack.clear();
+        self.opstack.clear();
 
         while pc < self.instructions.len() {
+            println!("{:>5}: {}", pc, self.instructions[pc]);
+
             match self.instructions[pc] {
-                LoadGlobal => self.value_stack.push(&self.input)?,
-                LoadImmediate(ref v) => self.value_stack.push(v)?,
+                LoadGlobal => self.opstack.push(&self.input)?,
+                LoadImmediate(ref v) => self.opstack.push(v)?,
                 Collect(ref ty, len) => match ty {
                     CollectType::Array => {
                         let mut result = vec![];
                         for _i in 0..len {
-                            let value = self.value_stack.pop()?;
+                            let value = self.opstack.pop()?;
                             result.push(value.clone());
                         }
                         let result = self.heap.alloc(Value::Array(result));
-                        self.value_stack.push(&*result)?;
+                        self.opstack.push(&*result)?;
                     }
                     CollectType::Set => {
                         let mut result = Set::new();
                         for _i in 0..len {
-                            let value = self.value_stack.pop()?;
+                            let value = self.opstack.pop()?;
                             result.insert(value.clone());
                         }
                         let result = self.heap.alloc(Value::Set(result));
-                        self.value_stack.push(&*result)?;
+                        self.opstack.push(&*result)?;
                     }
                     CollectType::Map => {
                         let mut result = Map::new();
                         for _i in 0..len {
-                            let value = self.value_stack.pop()?;
-                            let key = self.value_stack.pop()?;
+                            let value = self.opstack.pop()?;
+                            let key = self.opstack.pop()?;
                             result.insert(key.clone(), value.clone());
                         }
                         let result = self.heap.alloc(Value::Object(result));
-                        self.value_stack.push(&*result)?;
+                        self.opstack.push(&*result)?;
                     }
                 },
                 Index => {
-                    let arg = self.value_stack.pop()?;
-                    let target = self.value_stack.pop()?;
+                    let arg = self.opstack.pop()?;
+                    let target = self.opstack.pop()?;
                     let result = target.get(arg).unwrap_or_else(|| &UNDEFINED);
-                    self.value_stack.push(result)?;
+                    self.opstack.push(result)?;
+                }
+                Dup => {
+                    let value = self.opstack.pop()?;
+                    self.opstack.push(value)?;
+                    self.opstack.push(value)?;
+                }
+                Pop => {
+                    self.opstack.pop()?;
                 }
                 BinOp(binop) => {
-                    let right = self.value_stack.pop()?;
-                    let left = self.value_stack.pop()?;
+                    let right = self.opstack.pop()?;
+                    let left = self.opstack.pop()?;
                     let result = self.heap.alloc(binop.op(left, right));
-                    self.value_stack.push(&*result)?;
+                    self.opstack.push(&*result)?;
                 }
                 Label(ref _l) => (),
                 Call(jpc) => {
                     let prev = mem::replace(&mut self.locals, HashMap::new());
                     let frame = Frame { locals: prev, pc };
-                    self.call_stack.push(frame)?;
+                    self.callstack.push(frame)?;
                     pc = jpc;
                     continue;
                 }
                 Return => {
-                    let frame = self.call_stack.pop()?;
+                    let frame = self.callstack.pop()?;
                     self.locals = frame.locals;
                     pc = frame.pc;
                 }
@@ -319,10 +341,22 @@ impl<'a> Instance<'a> {
                     pc = jpc;
                     continue;
                 }
+                BranchUndefined(offset) => {
+                    let value = self.opstack.pop()?;
+                    if value.is_undefined() {
+                        let next = pc as isize + offset;
+                        if next < 0 {
+                            return Err(Error::AddressUnderflow);
+                        } else {
+                            pc = next as usize;
+                            continue;
+                        }
+                    }
+                }
             }
             pc += 1
         }
-        self.value_stack.pop().map(|o| o.clone())
+        self.opstack.pop().map(|o| o.clone())
     }
 }
 
@@ -370,6 +404,33 @@ mod tests {
         println!("{}", query);
         let result = query.eval(Value::Undefined).unwrap();
         assert_eq!(Value::Number(7.into()), result);
+        println!("result: {:?}", result);
+    }
+
+    #[test]
+    fn test_branch_undefined() {
+        let instructions = vec![
+            Instruction::Jump(11),
+            Instruction::Label("add".to_string()),
+            Instruction::LoadImmediate(Value::Number(3.into())),
+            Instruction::LoadImmediate(Value::Null),
+            Instruction::BinOp(BinOp::Add),
+            Instruction::Dup,
+            Instruction::BranchUndefined(2),
+            Instruction::Return,
+            Instruction::Pop,
+            Instruction::LoadImmediate(Value::Number(3.into())),
+            Instruction::Return,
+            Instruction::Label("start".to_string()),
+            Instruction::Call(1),
+        ];
+
+        let query = CompiledQuery {
+            instructions: Arc::new(instructions),
+        };
+        println!("{}", query);
+        let result = query.eval(Value::Undefined).unwrap();
+        assert_eq!(Value::Number(3.into()), result);
         println!("result: {:?}", result);
     }
 
