@@ -1,5 +1,6 @@
-use std::fmt;
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::{fmt, mem};
 
 use typed_arena::Arena;
 
@@ -12,16 +13,30 @@ mod stack;
 pub use stack::Stack;
 
 static UNDEFINED: Value = Value::Undefined;
-const INPUT_ROOT: &str = "input";
-const DATA_ROOT: &str = "data";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
+    /// Push globals reference to opstack
     LoadGlobal,
+    /// Push immediate value to opstack
     LoadImmediate(Value),
-    BinOp(BinOp),
+    /// Pop immediate num of items from opstack, collect into CollectType, and push result to
+    /// opstack
     Collect(CollectType, usize),
+    /// Pop reference and target from opstack, index target by reference, push result to opstack
     Index,
+
+    /// Pop two operands from opstack, apply binop, and push result to opstack
+    BinOp(BinOp),
+
+    /// Label - noop
+    Label(String),
+    /// Push frame onto callstack and jump to immediate instruction
+    Call(usize),
+    /// Pop frame off callstack
+    Return,
+    /// Jump to immediate instruction
+    Jump(usize),
 }
 
 impl fmt::Display for Instruction {
@@ -29,9 +44,13 @@ impl fmt::Display for Instruction {
         match self {
             Self::LoadGlobal => write!(f, "loadg"),
             Self::LoadImmediate(v) => write!(f, "loadi {}", v),
-            Self::BinOp(op) => write!(f, "binop {}", op),
             Self::Collect(ty, size) => write!(f, "collect {} {}", ty, size),
             Self::Index => write!(f, "index"),
+            Self::BinOp(op) => write!(f, "binop {}", op),
+            Self::Label(label) => write!(f, "label({})", label),
+            Self::Call(pc) => write!(f, "call {}", pc),
+            Self::Return => write!(f, "ret"),
+            Self::Jump(pc) => write!(f, "jump {}", pc),
         }
     }
 }
@@ -99,6 +118,12 @@ impl fmt::Display for CollectType {
             Self::Map => write!(f, "map"),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Frame<'a> {
+    pc: usize,
+    locals: HashMap<usize, &'a Value>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -194,7 +219,9 @@ impl CompiledQuery {
         let mut instance = Instance {
             instructions: self.instructions.clone(),
             value_stack: Stack::new(),
+            call_stack: Stack::new(),
             heap: Arena::new(),
+            locals: HashMap::new(),
             input,
         };
         instance.eval()
@@ -203,8 +230,11 @@ impl CompiledQuery {
 
 impl fmt::Display for CompiledQuery {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for i in self.instructions.as_ref() {
-            writeln!(f, "{}", i)?
+        for (i, instruction) in self.instructions.iter().enumerate() {
+            match instruction {
+                Instruction::Label(_) => writeln!(f, "{:>5}: {}", i, instruction)?,
+                _ => writeln!(f, "{:>5}:    {}", i, instruction)?,
+            }
         }
         Ok(())
     }
@@ -213,7 +243,9 @@ impl fmt::Display for CompiledQuery {
 struct Instance<'m> {
     instructions: Arc<Vec<Instruction>>,
     value_stack: Stack<&'m Value>,
+    call_stack: Stack<Frame<'m>>,
     heap: Arena<Value>,
+    locals: HashMap<usize, &'m Value>,
     input: Value,
 }
 
@@ -228,12 +260,6 @@ impl<'a> Instance<'a> {
             match self.instructions[pc] {
                 LoadGlobal => self.value_stack.push(&self.input)?,
                 LoadImmediate(ref v) => self.value_stack.push(v)?,
-                BinOp(binop) => {
-                    let right = self.value_stack.pop()?;
-                    let left = self.value_stack.pop()?;
-                    let result = self.heap.alloc(binop.op(left, right));
-                    self.value_stack.push(&*result)?;
-                }
                 Collect(ref ty, len) => match ty {
                     CollectType::Array => {
                         let mut result = vec![];
@@ -270,6 +296,29 @@ impl<'a> Instance<'a> {
                     let result = target.get(arg).unwrap_or_else(|| &UNDEFINED);
                     self.value_stack.push(result)?;
                 }
+                BinOp(binop) => {
+                    let right = self.value_stack.pop()?;
+                    let left = self.value_stack.pop()?;
+                    let result = self.heap.alloc(binop.op(left, right));
+                    self.value_stack.push(&*result)?;
+                }
+                Label(ref _l) => (),
+                Call(jpc) => {
+                    let prev = mem::replace(&mut self.locals, HashMap::new());
+                    let frame = Frame { locals: prev, pc };
+                    self.call_stack.push(frame)?;
+                    pc = jpc;
+                    continue;
+                }
+                Return => {
+                    let frame = self.call_stack.pop()?;
+                    self.locals = frame.locals;
+                    pc = frame.pc;
+                }
+                Jump(jpc) => {
+                    pc = jpc;
+                    continue;
+                }
             }
             pc += 1
         }
@@ -288,6 +337,7 @@ mod tests {
     #[test]
     fn eval() {
         let instructions = vec![
+            Instruction::Label("start".to_string()),
             Instruction::LoadImmediate(Value::Number(3.into())),
             Instruction::LoadImmediate(Value::Number(4.into())),
             Instruction::BinOp(BinOp::Add),
@@ -296,7 +346,30 @@ mod tests {
         let query = CompiledQuery {
             instructions: Arc::new(instructions),
         };
+        println!("{}", query);
         let result = query.eval(Value::Undefined);
+        println!("result: {:?}", result);
+    }
+
+    #[test]
+    fn test_function_call() {
+        let instructions = vec![
+            Instruction::Jump(6),
+            Instruction::Label("add".to_string()),
+            Instruction::LoadImmediate(Value::Number(3.into())),
+            Instruction::LoadImmediate(Value::Number(4.into())),
+            Instruction::BinOp(BinOp::Add),
+            Instruction::Return,
+            Instruction::Label("start".to_string()),
+            Instruction::Call(1),
+        ];
+
+        let query = CompiledQuery {
+            instructions: Arc::new(instructions),
+        };
+        println!("{}", query);
+        let result = query.eval(Value::Undefined).unwrap();
+        assert_eq!(Value::Number(7.into()), result);
         println!("result: {:?}", result);
     }
 

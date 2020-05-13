@@ -3,7 +3,10 @@ use std::mem;
 
 use crate::ast::*;
 use crate::value::Value;
-use crate::vm::{Error, DATA_ROOT, INPUT_ROOT};
+use crate::vm::Error;
+
+const INPUT_ROOT: &str = "input";
+const DATA_ROOT: &str = "data";
 
 // TODO(miyagley) handle import name resolution
 
