@@ -1,3 +1,7 @@
+mod ir;
+mod passes;
+mod stack;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::{fmt, mem};
@@ -7,16 +11,14 @@ use typed_arena::Arena;
 use crate::ast::*;
 use crate::value::{Map, Set, Value};
 
-mod passes;
-mod stack;
-
+pub use ir::Ir;
 pub use stack::Stack;
 
 static UNDEFINED: Value = Value::Undefined;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
-    /// Push globals reference to opstack
+    /// Push globals' reference to opstack
     LoadGlobal,
     /// Push immediate value to opstack
     LoadImmediate(Value),
@@ -44,6 +46,8 @@ pub enum Instruction {
 
     /// Pop value off of opstack, branch to calculated pc if undefined
     BranchUndefined(isize),
+    /// Pop value off of opstack, branch to calculated pc if defined
+    BranchDefined(isize),
 }
 
 impl fmt::Display for Instruction {
@@ -61,6 +65,7 @@ impl fmt::Display for Instruction {
             Self::Return => write!(f, "ret"),
             Self::Jump(pc) => write!(f, "jump {}", pc),
             Self::BranchUndefined(offset) => write!(f, "bundef {}", offset),
+            Self::BranchDefined(offset) => write!(f, "bdef {}", offset),
         }
     }
 }
@@ -143,6 +148,7 @@ pub enum Error {
     StackUnderflow,
     StackOverflow,
     AddressUnderflow,
+    UnknownReference(String),
 }
 
 impl fmt::Display for Error {
@@ -159,6 +165,7 @@ impl fmt::Display for Error {
             Error::StackUnderflow => write!(f, "stack underflow"),
             Error::StackOverflow => write!(f, "stack overflow"),
             Error::AddressUnderflow => write!(f, "pc is negative after applying branch offset"),
+            Error::UnknownReference(label) => write!(f, "unknown reference: {}", label),
         }
     }
 }
@@ -193,13 +200,14 @@ impl CompiledQuery {
         expr.accept(&mut codegen)?;
 
         let query = CompiledQuery {
-            instructions: Arc::new(codegen.into_instructions()),
+            instructions: Arc::new(codegen.assemble()?),
         };
         Ok(query)
     }
 
     pub fn compile(mut expr: Expr, mut modules: Vec<Module>) -> Result<Self, Error> {
         let mut codegen = passes::Codegen::new();
+        codegen.push_ir(Ir::Jump("$_query".to_string()));
 
         for module in &mut modules {
             // Input resolution
@@ -218,11 +226,15 @@ impl CompiledQuery {
         }
 
         // Compile the query
+        // rule resolution
+        let mut rules = passes::RuleResolver::new(&vec![]);
+        expr.accept(&mut rules)?;
         expr.accept(&mut passes::ConstEval)?;
+        codegen.push_ir(Ir::Label("$_query".to_string()));
         expr.accept(&mut codegen)?;
 
         let query = CompiledQuery {
-            instructions: Arc::new(codegen.into_instructions()),
+            instructions: Arc::new(codegen.assemble()?),
         };
         Ok(query)
     }
@@ -341,6 +353,18 @@ impl<'a> Instance<'a> {
                     pc = jpc;
                     continue;
                 }
+                BranchDefined(offset) => {
+                    let value = self.opstack.pop()?;
+                    if !value.is_undefined() {
+                        let next = pc as isize + offset;
+                        if next < 0 {
+                            return Err(Error::AddressUnderflow);
+                        } else {
+                            pc = next as usize;
+                            continue;
+                        }
+                    }
+                }
                 BranchUndefined(offset) => {
                     let value = self.opstack.pop()?;
                     if value.is_undefined() {
@@ -366,7 +390,7 @@ mod tests {
 
     use std::convert::TryFrom;
 
-    use crate::parser::parse_query;
+    use crate::parser::{parse_module, parse_query};
 
     #[test]
     fn eval() {
@@ -539,4 +563,46 @@ mod tests {
         let expected = Value::Bool(true);
         assert_eq!(expected, result);
     }
+
+    #[test]
+    fn test_default_rule() {
+        let module = r###"
+            package opa.test
+
+            default allow = true
+        "###;
+        let module = parse_module(&module).unwrap();
+        let module = Module::try_from(module).unwrap();
+
+        let query = "data.opa.test.allow";
+        let query = parse_query(&query).unwrap();
+        let query = Expr::try_from(query).unwrap();
+
+        let query = CompiledQuery::compile(query, vec![module]).unwrap();
+        println!("{}", query);
+        let result = query.eval(Value::Null).unwrap();
+        let expected = Value::Bool(true);
+        assert_eq!(expected, result);
+    }
+
+    // #[test]
+    // fn test_complete_rule() {
+    //     let module = r###"
+    //         package opa.test
+    //
+    //         a := "hello"
+    //     "###;
+    //     let module = parse_module(&module).unwrap();
+    //     let module = Module::try_from(module).unwrap();
+    //
+    //     let query = "data.opa.test.a";
+    //     let query = parse_query(&query).unwrap();
+    //     let query = Expr::try_from(query).unwrap();
+    //
+    //     let query = CompiledQuery::compile(query, vec![module]).unwrap();
+    //     println!("{}", query);
+    //     let result = query.eval(Value::Null).unwrap();
+    //     let expected = Value::String("hello".to_string());
+    //     assert_eq!(expected, result);
+    // }
 }

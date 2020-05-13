@@ -8,6 +8,7 @@ use crate::value::Value;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Error {
     ConflictingRules(String),
+    MismatchedRules,
     MultipleDefaults(String),
     Unsupported(&'static str),
     UnexpectedElse,
@@ -17,6 +18,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::ConflictingRules(s) => write!(f, "conflicting rules found for {}", s),
+            Error::MismatchedRules => write!(f, "conflicting rules found"),
             Error::MultipleDefaults(s) => write!(f, "multiple default rules named {} found", s),
             Error::Unsupported(s) => write!(f, "{} are unsupported", s),
             Error::UnexpectedElse => write!(f, "unexpected 'else' in rule body"),
@@ -74,43 +76,85 @@ impl Module {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Rule {
-    name: String,
-    default: Option<Expr>,
-    clauses: Vec<Clause>,
+    pub name: String,
+    pub default: Option<Expr>,
+    pub body: Body,
 }
 
-impl Rule {
-    pub(crate) fn new(name: String, default: Option<Expr>, clauses: Vec<Clause>) -> Self {
-        Self {
-            name,
-            default,
-            clauses,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Body {
+    Default(Expr),
+    Complete(Vec<CompleteClause>),
+    Set(Vec<SetClause>),
+    Object(Vec<ObjectClause>),
+    Function(Vec<FunctionClause>),
+}
+
+impl Body {
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Default(_) => 1,
+            Self::Complete(c) => c.len(),
+            Self::Set(c) => c.len(),
+            Self::Object(c) => c.len(),
+            Self::Function(c) => c.len(),
         }
     }
+}
 
-    pub fn name(&self) -> &str {
-        &self.name
+impl Body {
+    fn append(self, clause: Clause) -> Result<Self, Error> {
+        match (self, clause) {
+            (Body::Default(expr), Clause::Default { .. }) => Ok(Body::Default(expr)),
+            (Body::Complete(mut clauses), Clause::Complete { value, body }) => {
+                let clause = CompleteClause { value, body };
+                clauses.push(clause);
+                Ok(Body::Complete(clauses))
+            }
+            (Body::Set(mut clauses), Clause::Set { key, body }) => {
+                let clause = SetClause { key, body };
+                clauses.push(clause);
+                Ok(Body::Set(clauses))
+            }
+            (Body::Object(mut clauses), Clause::Object { key, value, body }) => {
+                let clause = ObjectClause { key, value, body };
+                clauses.push(clause);
+                Ok(Body::Object(clauses))
+            }
+            (Body::Function(mut clauses), Clause::Function { args, value, body }) => {
+                let clause = FunctionClause { args, value, body };
+                clauses.push(clause);
+                Ok(Body::Function(clauses))
+            }
+            _ => Err(Error::MismatchedRules),
+        }
     }
+}
 
-    pub fn set_name(&mut self, name: String) {
-        self.name = name
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CompleteClause {
+    pub value: Expr,
+    pub body: ClauseBody,
+}
 
-    pub fn default(&self) -> Option<&Expr> {
-        self.default.as_ref()
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SetClause {
+    pub key: Expr,
+    pub body: Expr,
+}
 
-    pub fn default_mut(&mut self) -> Option<&mut Expr> {
-        self.default.as_mut()
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ObjectClause {
+    pub key: Expr,
+    pub value: Expr,
+    pub body: Expr,
+}
 
-    pub fn clauses(&self) -> &[Clause] {
-        &self.clauses
-    }
-
-    pub fn clauses_mut(&mut self) -> &mut [Clause] {
-        self.clauses.as_mut_slice()
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FunctionClause {
+    pub args: Vec<Expr>,
+    pub value: Expr,
+    pub body: ClauseBody,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -120,7 +164,7 @@ pub enum Clause {
     },
     Complete {
         value: Expr,
-        body: RuleBody,
+        body: ClauseBody,
     },
     Set {
         key: Expr,
@@ -134,12 +178,12 @@ pub enum Clause {
     Function {
         args: Vec<Expr>,
         value: Expr,
-        body: RuleBody,
+        body: ClauseBody,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum RuleBody {
+pub enum ClauseBody {
     Query(Expr),
     WithElses(Expr, Vec<Else>),
 }
@@ -250,6 +294,44 @@ fn is_conflicting(left: &Clause, right: &Clause) -> bool {
     }
 }
 
+impl TryFrom<Vec<Clause>> for Body {
+    type Error = Error;
+
+    fn try_from(clauses: Vec<Clause>) -> Result<Self, Self::Error> {
+        // Check for conflicting rule heads
+        let mut tocheck = clauses.into_iter();
+        if let Some(first) = tocheck.next() {
+            tocheck.fold(Body::try_from(first), |acc, c| match (acc, c) {
+                (Err(e), _) => Err(e),
+                (Ok(a), b) => a.append(b),
+            })
+        } else {
+            Ok(Body::Complete(vec![]))
+        }
+    }
+}
+
+impl TryFrom<Clause> for Body {
+    type Error = Error;
+
+    fn try_from(clause: Clause) -> Result<Self, Self::Error> {
+        let body = match clause {
+            Clause::Default { value } => Body::Default(value),
+            Clause::Complete { value, body } => {
+                Body::Complete(vec![CompleteClause { value, body }])
+            }
+            Clause::Set { key, body } => Body::Set(vec![SetClause { key, body }]),
+            Clause::Object { key, value, body } => {
+                Body::Object(vec![ObjectClause { key, value, body }])
+            }
+            Clause::Function { args, value, body } => {
+                Body::Function(vec![FunctionClause { args, value, body }])
+            }
+        };
+        Ok(body)
+    }
+}
+
 impl TryFrom<tree::DefaultRule<'_>> for Vec<Clause> {
     type Error = Error;
 
@@ -270,9 +352,9 @@ impl TryFrom<tree::CompleteRule<'_>> for Vec<Clause> {
             .unwrap_or_else(|| Ok(Expr::Scalar(Value::Bool(true))))?;
 
         let bodies = maybe_body
-            .map(Vec::<RuleBody>::try_from)
+            .map(Vec::<ClauseBody>::try_from)
             .transpose()?
-            .unwrap_or_else(|| vec![RuleBody::Query(Expr::Scalar(Value::Bool(true)))]);
+            .unwrap_or_else(|| vec![ClauseBody::Query(Expr::Scalar(Value::Bool(true)))]);
         let clauses = bodies
             .into_iter()
             .map(|body| Clause::Complete {
@@ -339,9 +421,9 @@ impl TryFrom<tree::FunctionRule<'_>> for Vec<Clause> {
             .collect::<Result<Vec<Expr>, Error>>()?;
         let value = Expr::try_from(value)?;
         let bodies = maybe_body
-            .map(Vec::<RuleBody>::try_from)
+            .map(Vec::<ClauseBody>::try_from)
             .transpose()?
-            .unwrap_or_else(|| vec![RuleBody::Query(Expr::Scalar(Value::Bool(true)))]);
+            .unwrap_or_else(|| vec![ClauseBody::Query(Expr::Scalar(Value::Bool(true)))]);
         let clauses = bodies
             .into_iter()
             .map(|body| Clause::Function {
@@ -406,10 +488,12 @@ impl<'a> TryFrom<tree::Module<'a>> for Module {
                     })?;
                 }
 
+                let body = Body::try_from(clauses)?;
+
                 let rule = Rule {
                     name: name.to_string(),
                     default,
-                    clauses,
+                    body,
                 };
                 Ok(rule)
             })
@@ -420,14 +504,14 @@ impl<'a> TryFrom<tree::Module<'a>> for Module {
     }
 }
 
-impl TryFrom<tree::RuleBody<'_>> for Vec<RuleBody> {
+impl TryFrom<tree::RuleBody<'_>> for Vec<ClauseBody> {
     type Error = Error;
 
     fn try_from(body: tree::RuleBody<'_>) -> Result<Self, Self::Error> {
         match body {
             tree::RuleBody::Clauses(queries) => queries
                 .into_iter()
-                .map(|q| Ok(RuleBody::Query(Expr::try_from(q)?)))
+                .map(|q| Ok(ClauseBody::Query(Expr::try_from(q)?)))
                 .collect::<Result<Self, Error>>(),
             tree::RuleBody::WithElses(query, elses) => {
                 let query = Expr::try_from(query)?;
@@ -440,7 +524,7 @@ impl TryFrom<tree::RuleBody<'_>> for Vec<RuleBody> {
                         Ok(Else::new(value, query))
                     })
                     .collect::<Result<Vec<Else>, Error>>()?;
-                Ok(vec![RuleBody::WithElses(query, elses)])
+                Ok(vec![ClauseBody::WithElses(query, elses)])
             }
         }
     }

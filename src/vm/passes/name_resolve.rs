@@ -24,10 +24,10 @@ impl RuleResolver {
         }
     }
 
-    fn visit_rulebody(&mut self, body: &mut RuleBody) -> Result<(), Error> {
+    fn visit_clausebody(&mut self, body: &mut ClauseBody) -> Result<(), Error> {
         match body {
-            RuleBody::Query(query) => query.accept(self)?,
-            RuleBody::WithElses(query, elses) => {
+            ClauseBody::Query(query) => query.accept(self)?,
+            ClauseBody::WithElses(query, elses) => {
                 query.accept(self)?;
                 for el in elses {
                     if let Some(value) = el.value_mut() {
@@ -54,35 +54,41 @@ impl Visitor for RuleResolver {
 
     fn visit_module(&mut self, module: &mut Module) -> Result<Self::Value, Self::Error> {
         for rule in module.rules_mut() {
-            self.local_rules.insert(rule.name().to_owned());
-            rule.set_name(format!("{}.{}.{}", DATA_ROOT, self.package, rule.name()));
+            self.local_rules.insert(rule.name.to_owned());
+            rule.name = format!("{}.{}.{}", DATA_ROOT, self.package, &rule.name);
         }
 
         for rule in module.rules_mut() {
-            if let Some(default) = rule.default_mut() {
+            if let Some(default) = rule.default.as_mut() {
                 default.accept(self)?;
             }
 
-            for clause in rule.clauses_mut() {
-                match clause {
-                    Clause::Default { value } => value.accept(self)?,
-                    Clause::Complete { value, body } => {
-                        value.accept(self)?;
-                        self.visit_rulebody(body)?;
+            match &mut rule.body {
+                Body::Default(value) => value.accept(self)?,
+                Body::Complete(clauses) => {
+                    for clause in clauses {
+                        clause.value.accept(self)?;
+                        self.visit_clausebody(&mut clause.body)?;
                     }
-                    Clause::Set { key, body } => {
-                        key.accept(self)?;
-                        body.accept(self)?;
+                }
+                Body::Set(clauses) => {
+                    for clause in clauses {
+                        clause.key.accept(self)?;
+                        clause.body.accept(self)?;
                     }
-                    Clause::Object { key, value, body } => {
-                        key.accept(self)?;
-                        value.accept(self)?;
-                        body.accept(self)?;
+                }
+                Body::Object(clauses) => {
+                    for clause in clauses {
+                        clause.key.accept(self)?;
+                        clause.value.accept(self)?;
+                        clause.body.accept(self)?;
                     }
-                    Clause::Function { args, value, body } => {
-                        self.visit_vec(args)?;
-                        value.accept(self)?;
-                        self.visit_rulebody(body)?;
+                }
+                Body::Function(clauses) => {
+                    for clause in clauses {
+                        self.visit_vec(&mut clause.args)?;
+                        clause.value.accept(self)?;
+                        self.visit_clausebody(&mut clause.body)?;
                     }
                 }
             }
@@ -296,31 +302,31 @@ mod tests {
         "###;
 
         let rules = vec![
-            Rule::new(
-                "data.opa.examples.b".to_string(),
-                None,
-                vec![Clause::Set {
+            Rule {
+                name: "data.opa.examples.b".to_string(),
+                default: None,
+                body: Body::Set(vec![SetClause {
                     key: Expr::Var("out".to_string()),
                     body: Expr::Scalar(Value::Bool(true)),
-                }],
-            ),
-            Rule::new(
-                "data.opa.examples.c".to_string(),
-                None,
-                vec![Clause::Object {
+                }]),
+            },
+            Rule {
+                name: "data.opa.examples.c".to_string(),
+                default: None,
+                body: Body::Object(vec![ObjectClause {
                     key: Expr::Var("key".to_string()),
                     value: Expr::Var("value".to_string()),
                     body: Expr::Scalar(Value::Bool(true)),
-                }],
-            ),
-            Rule::new(
-                "data.opa.examples.a".to_string(),
-                None,
-                vec![Clause::Complete {
+                }]),
+            },
+            Rule {
+                name: "data.opa.examples.a".to_string(),
+                default: None,
+                body: Body::Complete(vec![CompleteClause {
                     value: Expr::Scalar(Value::Bool(true)),
-                    body: RuleBody::Query(Expr::Scalar(Value::Bool(true))),
-                }],
-            ),
+                    body: ClauseBody::Query(Expr::Scalar(Value::Bool(true))),
+                }]),
+            },
         ];
         let expected = Module::new(vec!["opa".to_string(), "examples".to_string()], rules);
 
@@ -331,12 +337,12 @@ mod tests {
         let expected = expected
             .rules()
             .iter()
-            .map(|r| r.name().to_owned())
+            .map(|r| r.name.to_owned())
             .collect::<HashSet<String>>();
         let result = module
             .rules()
             .iter()
-            .map(|r| r.name().to_owned())
+            .map(|r| r.name.to_owned())
             .collect::<HashSet<String>>();
         assert_eq!(expected, result);
 
@@ -356,26 +362,26 @@ mod tests {
         "###;
 
         let rules = vec![
-            Rule::new(
-                "data.opa.examples.b".to_string(),
-                None,
-                vec![Clause::Complete {
+            Rule {
+                name: "data.opa.examples.b".to_string(),
+                default: None,
+                body: Body::Complete(vec![CompleteClause {
                     value: Expr::Scalar(Value::Number(3.into())),
-                    body: RuleBody::Query(Expr::Scalar(Value::Bool(true))),
-                }],
-            ),
-            Rule::new(
-                "data.opa.examples.a".to_string(),
-                None,
-                vec![Clause::Complete {
+                    body: ClauseBody::Query(Expr::Scalar(Value::Bool(true))),
+                }]),
+            },
+            Rule {
+                name: "data.opa.examples.a".to_string(),
+                default: None,
+                body: Body::Complete(vec![CompleteClause {
                     value: Expr::Scalar(Value::Number(2.into())),
-                    body: RuleBody::Query(Expr::BinOp(
+                    body: ClauseBody::Query(Expr::BinOp(
                         Box::new(Expr::RuleCall("data.opa.examples.b".to_string())),
                         Opcode::EqEq,
                         Box::new(Expr::Scalar(Value::Number(3.into()))),
                     )),
-                }],
-            ),
+                }]),
+            },
         ];
         let expected = Module::new(vec!["opa".to_string(), "examples".to_string()], rules);
 
@@ -404,26 +410,26 @@ mod tests {
         "###;
 
         let rules = vec![
-            Rule::new(
-                "data.opa.examples.b".to_string(),
-                None,
-                vec![Clause::Complete {
+            Rule {
+                name: "data.opa.examples.b".to_string(),
+                default: None,
+                body: Body::Complete(vec![CompleteClause {
                     value: Expr::Scalar(Value::Number(3.into())),
-                    body: RuleBody::Query(Expr::Scalar(Value::Bool(true))),
-                }],
-            ),
-            Rule::new(
-                "data.opa.examples.a".to_string(),
-                None,
-                vec![Clause::Complete {
+                    body: ClauseBody::Query(Expr::Scalar(Value::Bool(true))),
+                }]),
+            },
+            Rule {
+                name: "data.opa.examples.a".to_string(),
+                default: None,
+                body: Body::Complete(vec![CompleteClause {
                     value: Expr::Scalar(Value::Number(2.into())),
-                    body: RuleBody::Query(Expr::BinOp(
+                    body: ClauseBody::Query(Expr::BinOp(
                         Box::new(Expr::RuleCall("data.opa.examples.b".to_string())),
                         Opcode::EqEq,
                         Box::new(Expr::Scalar(Value::Number(3.into()))),
                     )),
-                }],
-            ),
+                }]),
+            },
         ];
         let expected = Module::new(vec!["opa".to_string(), "examples".to_string()], rules);
 
@@ -453,28 +459,28 @@ mod tests {
         "###;
 
         let rules = vec![
-            Rule::new(
-                "data.opa.examples.b".to_string(),
-                None,
-                vec![Clause::Complete {
+            Rule {
+                name: "data.opa.examples.b".to_string(),
+                default: None,
+                body: Body::Complete(vec![CompleteClause {
                     value: Expr::Scalar(Value::Number(3.into())),
-                    body: RuleBody::Query(Expr::Scalar(Value::Bool(true))),
-                }],
-            ),
-            Rule::new(
-                "data.opa.examples.c".to_string(),
-                None,
-                vec![Clause::Complete {
+                    body: ClauseBody::Query(Expr::Scalar(Value::Bool(true))),
+                }]),
+            },
+            Rule {
+                name: "data.opa.examples.c".to_string(),
+                default: None,
+                body: Body::Complete(vec![CompleteClause {
                     value: Expr::Scalar(Value::Number(4.into())),
-                    body: RuleBody::Query(Expr::Scalar(Value::Bool(true))),
-                }],
-            ),
-            Rule::new(
-                "data.opa.examples.a".to_string(),
-                None,
-                vec![Clause::Complete {
+                    body: ClauseBody::Query(Expr::Scalar(Value::Bool(true))),
+                }]),
+            },
+            Rule {
+                name: "data.opa.examples.a".to_string(),
+                default: None,
+                body: Body::Complete(vec![CompleteClause {
                     value: Expr::Scalar(Value::Number(2.into())),
-                    body: RuleBody::Query(Expr::BinOp(
+                    body: ClauseBody::Query(Expr::BinOp(
                         Box::new(Expr::Index(vec![
                             Expr::RuleCall("data.opa.examples.b".to_string()),
                             Expr::RuleCall("data.opa.examples.c".to_string()),
@@ -482,8 +488,8 @@ mod tests {
                         Opcode::EqEq,
                         Box::new(Expr::Scalar(Value::Number(3.into()))),
                     )),
-                }],
-            ),
+                }]),
+            },
         ];
         let expected = Module::new(vec!["opa".to_string(), "examples".to_string()], rules);
 
