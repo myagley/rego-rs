@@ -15,6 +15,18 @@ pub use ir::Ir;
 pub use stack::Stack;
 
 static UNDEFINED: Value = Value::Undefined;
+static TRUE: Value = Value::Bool(true);
+static FALSE: Value = Value::Bool(false);
+
+macro_rules! static_bool {
+    ( $expr:expr ) => {
+        if $expr {
+            &TRUE
+        } else {
+            &FALSE
+        }
+    };
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
@@ -87,37 +99,6 @@ pub enum BinOp {
     Gte,
     EqEq,
     Ne,
-}
-
-impl BinOp {
-    pub fn op(&self, left: &Value, right: &Value) -> Value {
-        match self {
-            BinOp::Add => left + right,
-            BinOp::Sub => left - right,
-            BinOp::Mul => left * right,
-            BinOp::Div => left / right,
-            BinOp::And => {
-                if left.is_true() && right.is_true() {
-                    Value::Bool(true)
-                } else {
-                    Value::Undefined
-                }
-            }
-            BinOp::Or => {
-                if left.is_true() || right.is_true() {
-                    Value::Bool(true)
-                } else {
-                    Value::Undefined
-                }
-            }
-            BinOp::Lt => left.lt(&right).into(),
-            BinOp::Lte => left.le(&right).into(),
-            BinOp::Gt => left.gt(&right).into(),
-            BinOp::Gte => left.ge(&right).into(),
-            BinOp::EqEq => left.eq(&right).into(),
-            BinOp::Ne => left.ne(&right).into(),
-        }
-    }
 }
 
 impl fmt::Display for BinOp {
@@ -351,11 +332,36 @@ impl<'a> Instance<'a> {
                 Pop => {
                     self.opstack.pop()?;
                 }
-                BinOp(binop) => {
+                BinOp(ref binop) => {
                     let right = self.opstack.pop()?;
                     let left = self.opstack.pop()?;
-                    let result = self.heap.alloc(binop.op(left, right));
-                    self.opstack.push(&*result)?;
+                    let result = match binop {
+                        self::BinOp::Add => self.heap.alloc(left + right),
+                        self::BinOp::Sub => self.heap.alloc(left - right),
+                        self::BinOp::Mul => self.heap.alloc(left * right),
+                        self::BinOp::Div => self.heap.alloc(left / right),
+                        self::BinOp::And => {
+                            if left.is_boolean() && right.is_boolean() {
+                                static_bool!(left.is_true() && right.is_true())
+                            } else {
+                                &UNDEFINED
+                            }
+                        }
+                        self::BinOp::Or => {
+                            if left.is_boolean() && right.is_boolean() {
+                                static_bool!(left.is_true() || right.is_true())
+                            } else {
+                                &UNDEFINED
+                            }
+                        }
+                        self::BinOp::Lt => static_bool!(left.lt(&right)),
+                        self::BinOp::Lte => static_bool!(left.le(&right)),
+                        self::BinOp::Gt => static_bool!(left.gt(&right)),
+                        self::BinOp::Gte => static_bool!(left.ge(&right)),
+                        self::BinOp::EqEq => static_bool!(left.eq(&right)),
+                        self::BinOp::Ne => static_bool!(left.ne(&right)),
+                    };
+                    self.opstack.push(result)?;
                 }
                 Label(ref _l) => (),
                 Call(jpc) => {
