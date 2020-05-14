@@ -434,7 +434,9 @@ impl<'a> Instance<'a> {
             }
             pc += 1
         }
-        self.opstack.pop().map(|o| o.clone())
+        let result = self.opstack.pop().map(|o| o.clone());
+        debug_assert!(self.opstack.len() == 0);
+        result
     }
 }
 
@@ -836,6 +838,49 @@ mod tests {
         assert_eq!(expected, result);
 
         let result = query.eval(Value::Number(3.into())).unwrap();
+        let expected = Value::String("world".to_string());
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn test_complete_elses() {
+        let module = r###"
+            package opa.test
+
+            default a = "world"
+
+            a = "hello" {
+                input == 3
+            } else = "there" {
+                input == 4
+            } else = "ok" {
+                input == 5
+            } else = "something" {
+                input == 5
+            }
+        "###;
+        let module = parse_module(&module).unwrap();
+        let module = Module::try_from(module).unwrap();
+
+        let query = "data.opa.test.a";
+        let query = parse_query(&query).unwrap();
+        let query = Expr::try_from(query).unwrap();
+
+        let query = CompiledQuery::compile(query, vec![module]).unwrap();
+        println!("{}", query);
+        let result = query.eval(Value::Number(3.into())).unwrap();
+        let expected = Value::String("hello".to_string());
+        assert_eq!(expected, result);
+
+        let result = query.eval(Value::Number(4.into())).unwrap();
+        let expected = Value::String("there".to_string());
+        assert_eq!(expected, result);
+
+        let result = query.eval(Value::Number(5.into())).unwrap();
+        let expected = Value::String("ok".to_string());
+        assert_eq!(expected, result);
+
+        let result = query.eval(Value::Number(6.into())).unwrap();
         let expected = Value::String("world".to_string());
         assert_eq!(expected, result);
     }

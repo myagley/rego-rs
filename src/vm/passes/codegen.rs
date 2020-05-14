@@ -121,26 +121,56 @@ impl Codegen {
         Ok(())
     }
 
-    fn push_clausebody(&mut self, body: &mut ClauseBody) -> Result<(), Error> {
-        match body {
-            ClauseBody::Query(expr) => expr.accept(self)?,
-            _ => todo!(),
-        }
-        Ok(())
-    }
-
     fn push_complete_clause(
         &mut self,
         name: &str,
         clause: &mut CompleteClause,
     ) -> Result<(), Error> {
-        self.push_label(name);
-        self.push_clausebody(&mut clause.body)?;
-        self.push_ir(Ir::BranchTrue(3));
-        self.push_ir(Ir::LoadImmediate(Value::Undefined));
-        self.push_ir(Ir::Return);
-        clause.value.accept(self)?;
-        self.push_ir(Ir::Return);
+        match &mut clause.body {
+            ClauseBody::Query(expr) => {
+                self.push_label(name);
+                expr.accept(self)?;
+                self.push_ir(Ir::BranchTrue(3));
+                self.push_ir(Ir::LoadImmediate(Value::Undefined));
+                self.push_ir(Ir::Return);
+                clause.value.accept(self)?;
+                self.push_ir(Ir::Return);
+            }
+            ClauseBody::WithElses(expr, elses) => {
+                self.push_label(&format!("{}-{}", name, 0));
+                expr.accept(self)?;
+                self.push_ir(Ir::BranchTrue(3));
+                self.push_ir(Ir::LoadImmediate(Value::Undefined));
+                self.push_ir(Ir::Return);
+                clause.value.accept(self)?;
+                self.push_ir(Ir::Return);
+
+                for (i, el) in elses.iter_mut().enumerate() {
+                    self.push_label(&format!("{}-{}", name, i + 1));
+                    el.query_mut().accept(self)?;
+                    self.push_ir(Ir::BranchTrue(3));
+                    self.push_ir(Ir::LoadImmediate(Value::Undefined));
+                    self.push_ir(Ir::Return);
+                    if let Some(value) = el.value_mut() {
+                        value.accept(self)?;
+                    } else {
+                        clause.value.accept(self)?;
+                    }
+                    self.push_ir(Ir::Return);
+                }
+
+                self.push_label(name);
+                for i in 0..elses.len() + 1 {
+                    self.push_ir(Ir::Call(format!("{}-{}", name, i)));
+                    self.push_ir(Ir::Dup);
+                    self.push_ir(Ir::BranchUndefined(2));
+                    self.push_ir(Ir::Return);
+                    self.push_ir(Ir::Pop);
+                }
+                self.push_ir(Ir::LoadImmediate(Value::Undefined));
+                self.push_ir(Ir::Return);
+            }
+        }
         Ok(())
     }
 
