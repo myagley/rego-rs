@@ -9,6 +9,10 @@ pub enum Ir {
     LoadGlobal,
     /// Push immediate value to opstack
     LoadImmediate(Value),
+    /// Push local variable value reference to opstack
+    LoadLocal(String),
+    /// Pop value from opstack and store reference in locals
+    StoreLocal(String),
     /// Pop immediate num of items from opstack, collect into CollectType, and push result to
     /// opstack
     Collect(CollectType, usize),
@@ -44,6 +48,8 @@ impl fmt::Display for Ir {
         match self {
             Self::LoadGlobal => write!(f, "loadg"),
             Self::LoadImmediate(v) => write!(f, "loadi {}", v),
+            Self::LoadLocal(v) => write!(f, "loadl {}", v),
+            Self::StoreLocal(v) => write!(f, "storel {}", v),
             Self::Collect(ty, size) => write!(f, "collect {} {}", ty, size),
             Self::Index => write!(f, "index"),
             Self::Dup => write!(f, "dup"),

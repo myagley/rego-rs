@@ -34,6 +34,10 @@ pub enum Instruction {
     LoadGlobal,
     /// Push immediate value to opstack
     LoadImmediate(Value),
+    /// Push local variable value reference to opstack
+    LoadLocal(String),
+    /// Pop value from opstack and store reference in locals
+    StoreLocal(String),
     /// Pop immediate num of items from opstack, collect into CollectType, and push result to
     /// opstack
     Collect(CollectType, usize),
@@ -69,6 +73,8 @@ impl fmt::Display for Instruction {
         match self {
             Self::LoadGlobal => write!(f, "loadg"),
             Self::LoadImmediate(v) => write!(f, "loadi {}", v),
+            Self::LoadLocal(v) => write!(f, "loadl {}", v),
+            Self::StoreLocal(v) => write!(f, "storel {}", v),
             Self::Collect(ty, size) => write!(f, "collect {} {}", ty, size),
             Self::Index => write!(f, "index"),
             Self::Dup => write!(f, "dup"),
@@ -140,7 +146,7 @@ impl fmt::Display for CollectType {
 #[derive(Debug, Clone, PartialEq)]
 struct Frame<'a> {
     pc: usize,
-    locals: HashMap<usize, &'a Value>,
+    locals: HashMap<&'a str, &'a Value>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -271,7 +277,7 @@ struct Instance<'m> {
     opstack: Stack<&'m Value>,
     callstack: Stack<Frame<'m>>,
     heap: Arena<Value>,
-    locals: HashMap<usize, &'m Value>,
+    locals: HashMap<&'m str, &'m Value>,
     input: Value,
 }
 
@@ -288,6 +294,22 @@ impl<'a> Instance<'a> {
             match self.instructions[pc] {
                 LoadGlobal => self.opstack.push(&self.input)?,
                 LoadImmediate(ref v) => self.opstack.push(v)?,
+                LoadLocal(ref v) => {
+                    if let Some(value) = self.locals.get(&v.as_str()) {
+                        self.opstack.push(*value)?;
+                    } else {
+                        self.opstack.push(&UNDEFINED)?;
+                    }
+                }
+                StoreLocal(ref v) => {
+                    let value = self.opstack.pop()?;
+                    if self.locals.contains_key(v.as_str()) {
+                        self.opstack.push(&UNDEFINED)?;
+                    } else {
+                        self.locals.insert(v, value);
+                        self.opstack.push(&TRUE)?;
+                    }
+                }
                 Collect(ref ty, len) => match ty {
                     CollectType::Array => {
                         let mut result = vec![];
@@ -779,6 +801,37 @@ mod tests {
             a := "hello" {
                 input >= 2
                 input >= 4
+            }
+        "###;
+        let module = parse_module(&module).unwrap();
+        let module = Module::try_from(module).unwrap();
+
+        let query = "data.opa.test.a";
+        let query = parse_query(&query).unwrap();
+        let query = Expr::try_from(query).unwrap();
+
+        let query = CompiledQuery::compile(query, vec![module]).unwrap();
+        println!("{}", query);
+        let result = query.eval(Value::Number(4.into())).unwrap();
+        let expected = Value::String("hello".to_string());
+        assert_eq!(expected, result);
+
+        let result = query.eval(Value::Number(3.into())).unwrap();
+        let expected = Value::String("world".to_string());
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn test_local_var() {
+        let module = r###"
+            package opa.test
+
+            default a = "world"
+
+            a := "hello" {
+                c := input
+                c >= 2
+                c >= 4
             }
         "###;
         let module = parse_module(&module).unwrap();

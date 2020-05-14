@@ -34,6 +34,8 @@ impl Codegen {
             .map(move |ir| match ir {
                 Ir::LoadGlobal => Ok(Instruction::LoadGlobal),
                 Ir::LoadImmediate(value) => Ok(Instruction::LoadImmediate(value)),
+                Ir::LoadLocal(value) => Ok(Instruction::LoadLocal(value)),
+                Ir::StoreLocal(value) => Ok(Instruction::StoreLocal(value)),
                 Ir::Collect(ty, num) => Ok(Instruction::Collect(ty, num)),
                 Ir::Index => Ok(Instruction::Index),
                 Ir::Dup => Ok(Instruction::Dup),
@@ -206,17 +208,16 @@ impl Visitor for Codegen {
             Expr::Comprehension(compr) => self.push_comprehension(compr)?,
             // Root index into a global
             Expr::InputRoot => self.instructions.push(Ir::LoadGlobal),
-            // String index
-            // Expr::Var(var) => self
-            //     .instructions
-            //     .push(Ir::LoadImmediate(Value::String(var.clone()))),
-            // Expr::VarBrack(var) => self
-            //     .instructions
-            //     .push(Ir::LoadImmediate(Value::String(var.clone()))),
+            Expr::Var(var) => self.instructions.push(Ir::LoadLocal(var.clone())),
+            Expr::VarBrack(var) => self.instructions.push(Ir::LoadLocal(var.clone())),
             Expr::BinOp(left, op, right) => {
                 left.accept(self)?;
                 right.accept(self)?;
                 self.push_op(*op);
+            }
+            Expr::Assign(var, expr) => {
+                expr.accept(self)?;
+                self.instructions.push(Ir::StoreLocal(var.clone()));
             }
             Expr::Index(refs) => {
                 let mut iter = refs.into_iter();

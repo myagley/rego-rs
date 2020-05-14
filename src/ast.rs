@@ -12,6 +12,9 @@ pub enum Error {
     MultipleDefaults(String),
     Unsupported(&'static str),
     UnexpectedElse,
+    Assign(Expr),
+    UnificationUnsupported,
+    IllegalOpcodeConversion(tree::Opcode),
 }
 
 impl fmt::Display for Error {
@@ -22,6 +25,9 @@ impl fmt::Display for Error {
             Error::MultipleDefaults(s) => write!(f, "multiple default rules named {} found", s),
             Error::Unsupported(s) => write!(f, "{} are unsupported", s),
             Error::UnexpectedElse => write!(f, "unexpected 'else' in rule body"),
+            Error::Assign(expr) => write!(f, "error assigning to variable: expected a var, found {:?}", expr),
+            Error::UnificationUnsupported => write!(f, "unification with the '=' operator is unsupported. use ':=' for assignment or '==' for comparison"),
+            Error::IllegalOpcodeConversion(opcode) => write!(f, "no opcode conversion for {:?}", opcode),
         }
     }
 }
@@ -235,6 +241,7 @@ pub enum Expr {
     Comprehension(Comprehension),
 
     BinOp(Box<Expr>, Opcode, Box<Expr>),
+    Assign(String, Box<Expr>),
     Index(Vec<Expr>),
 
     Var(String),
@@ -544,9 +551,11 @@ impl TryFrom<tree::RuleBody<'_>> for Vec<Expr> {
     }
 }
 
-impl From<tree::Opcode> for Opcode {
-    fn from(op: tree::Opcode) -> Self {
-        match op {
+impl TryFrom<tree::Opcode> for Opcode {
+    type Error = Error;
+
+    fn try_from(op: tree::Opcode) -> Result<Self, Self::Error> {
+        let result = match op {
             tree::Opcode::Add => Opcode::Add,
             tree::Opcode::Sub => Opcode::Sub,
             tree::Opcode::Mul => Opcode::Mul,
@@ -559,9 +568,9 @@ impl From<tree::Opcode> for Opcode {
             tree::Opcode::Gte => Opcode::Gte,
             tree::Opcode::EqEq => Opcode::EqEq,
             tree::Opcode::Ne => Opcode::Ne,
-            tree::Opcode::Eq => Opcode::Eq,
-            tree::Opcode::Assign => Opcode::Assign,
-        }
+            opcode => return Err(Error::IllegalOpcodeConversion(opcode)),
+        };
+        Ok(result)
     }
 }
 
@@ -570,9 +579,21 @@ impl TryFrom<tree::Term<'_>> for Expr {
 
     fn try_from(term: tree::Term<'_>) -> Result<Self, Self::Error> {
         let expr = match term {
+            tree::Term::BinOp(left, tree::Opcode::Assign, right) => {
+                let left = Expr::try_from(*left)?;
+                let right = Expr::try_from(*right)?;
+                if let Expr::Var(var) = left {
+                    Expr::Assign(var, Box::new(right))
+                } else {
+                    return Err(Error::Assign(left));
+                }
+            }
+            tree::Term::BinOp(_left, tree::Opcode::Eq, _right) => {
+                return Err(Error::UnificationUnsupported)
+            }
             tree::Term::BinOp(left, op, right) => Expr::BinOp(
                 Box::new(Expr::try_from(*left)?),
-                op.into(),
+                Opcode::try_from(op)?,
                 Box::new(Expr::try_from(*right)?),
             ),
             tree::Term::Scalar(value) => Expr::Scalar(value),
@@ -778,9 +799,9 @@ mod tests {
 
         violations[server] {
             # ...the server exists
-            server = servers[i]
+            server := servers[i]
             # ...and any of the server's protocols is HTTP
-            server.protocols[j] = "http"
+            server.protocols[j] == "http"
             # ...and the server is public.
             public_servers[server]
         }

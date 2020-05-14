@@ -143,6 +143,7 @@ impl Visitor for RuleResolver {
                 left.accept(self)?;
                 right.accept(self)?;
             }
+            Expr::Assign(_var, expr) => expr.accept(self)?,
             Expr::Index(v) => {
                 match v.as_slice() {
                     &[Expr::Var(ref s), ..] if s == DATA_ROOT => {
@@ -305,6 +306,7 @@ impl Visitor for InputResolver {
                 left.accept(self)?;
                 right.accept(self)?;
             }
+            Expr::Assign(_var, expr) => expr.accept(self)?,
             Expr::Index(v) => match v.as_slice() {
                 &[Expr::Var(ref s), ref tail @ ..] if s == INPUT_ROOT => {
                     let mut items = vec![Expr::InputRoot];
