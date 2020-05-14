@@ -289,6 +289,10 @@ impl Value {
         self.as_bool().is_some()
     }
 
+    pub fn is_true(&self) -> bool {
+        self.as_bool().unwrap_or(false)
+    }
+
     pub fn as_null(&self) -> Option<()> {
         match *self {
             Value::Null => Some(()),

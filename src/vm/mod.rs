@@ -48,6 +48,8 @@ pub enum Instruction {
     BranchUndefined(isize),
     /// Pop value off of opstack, branch to calculated pc if defined
     BranchDefined(isize),
+    /// Pop value off of opstack, branch to calculated pc if true
+    BranchTrue(isize),
 }
 
 impl fmt::Display for Instruction {
@@ -66,6 +68,7 @@ impl fmt::Display for Instruction {
             Self::Jump(pc) => write!(f, "jump {}", pc),
             Self::BranchUndefined(offset) => write!(f, "bundef {}", offset),
             Self::BranchDefined(offset) => write!(f, "bdef {}", offset),
+            Self::BranchTrue(offset) => write!(f, "btrue {}", offset),
         }
     }
 }
@@ -377,6 +380,18 @@ impl<'a> Instance<'a> {
                         }
                     }
                 }
+                BranchTrue(offset) => {
+                    let value = self.opstack.pop()?;
+                    if value.is_true() {
+                        let next = pc as isize + offset;
+                        if next < 0 {
+                            return Err(Error::AddressUnderflow);
+                        } else {
+                            pc = next as usize;
+                            continue;
+                        }
+                    }
+                }
             }
             pc += 1
         }
@@ -585,24 +600,24 @@ mod tests {
         assert_eq!(expected, result);
     }
 
-    // #[test]
-    // fn test_complete_rule() {
-    //     let module = r###"
-    //         package opa.test
-    //
-    //         a := "hello"
-    //     "###;
-    //     let module = parse_module(&module).unwrap();
-    //     let module = Module::try_from(module).unwrap();
-    //
-    //     let query = "data.opa.test.a";
-    //     let query = parse_query(&query).unwrap();
-    //     let query = Expr::try_from(query).unwrap();
-    //
-    //     let query = CompiledQuery::compile(query, vec![module]).unwrap();
-    //     println!("{}", query);
-    //     let result = query.eval(Value::Null).unwrap();
-    //     let expected = Value::String("hello".to_string());
-    //     assert_eq!(expected, result);
-    // }
+    #[test]
+    fn test_complete_rule() {
+        let module = r###"
+            package opa.test
+
+            a := "hello"
+        "###;
+        let module = parse_module(&module).unwrap();
+        let module = Module::try_from(module).unwrap();
+
+        let query = "data.opa.test.a";
+        let query = parse_query(&query).unwrap();
+        let query = Expr::try_from(query).unwrap();
+
+        let query = CompiledQuery::compile(query, vec![module]).unwrap();
+        println!("{}", query);
+        let result = query.eval(Value::Null).unwrap();
+        let expected = Value::String("hello".to_string());
+        assert_eq!(expected, result);
+    }
 }

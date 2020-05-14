@@ -51,6 +51,7 @@ impl Codegen {
                     .ok_or_else(|| Error::UnknownReference(label)),
                 Ir::BranchDefined(offset) => Ok(Instruction::BranchDefined(offset)),
                 Ir::BranchUndefined(offset) => Ok(Instruction::BranchUndefined(offset)),
+                Ir::BranchTrue(offset) => Ok(Instruction::BranchTrue(offset)),
             })
             .collect::<Result<Vec<Instruction>, Error>>()
     }
@@ -134,26 +135,30 @@ impl Visitor for Codegen {
 
     fn visit_module(&mut self, module: &mut Module) -> Result<Self::Value, Self::Error> {
         for rule in module.rules_mut() {
-            if rule.body.len() > 0 {
-                // match &mut rule.body {
-                //     Body::Complete(clauses) => {
-                //
-                //     }
-                //     _ => todo!(),
-                // }
-                // for (i, clause) in rule.clauses_mut().iter_mut().enumerate() {
-                //     self.push_label(&format!("{}-{}", rule.name(), i));
-                // }
-                // self.instructions.push(Ir::Return);
-            } else {
-                self.push_label(&rule.name);
-                // No clauses. Codegen the default or undefined
-                if let Some(default) = rule.default.as_mut() {
-                    default.accept(self)?;
-                } else {
-                    self.instructions.push(Ir::LoadImmediate(Value::Undefined));
-                }
-                self.instructions.push(Ir::Return);
+            match &mut rule.body {
+                Body::Complete(clauses) => match clauses.as_mut_slice() {
+                    &mut [] => {
+                        self.push_label(&rule.name);
+                        // No clauses. Codegen the default or undefined
+                        if let Some(default) = rule.default.as_mut() {
+                            default.accept(self)?;
+                        } else {
+                            self.instructions.push(Ir::LoadImmediate(Value::Undefined));
+                        }
+                        self.instructions.push(Ir::Return);
+                    }
+                    &mut [ref mut clause] => {
+                        self.push_label(&rule.name);
+                        self.push_clausebody(&mut clause.body)?;
+                        self.push_ir(Ir::BranchTrue(3));
+                        self.push_ir(Ir::LoadImmediate(Value::Undefined));
+                        self.push_ir(Ir::Return);
+                        clause.value.accept(self)?;
+                        self.push_ir(Ir::Return);
+                    }
+                    clauses => todo!(),
+                },
+                _ => todo!(),
             }
         }
         Ok(())
