@@ -15,6 +15,7 @@ pub enum Error {
     Assign(Expr),
     UnificationUnsupported,
     IllegalOpcodeConversion(tree::Opcode),
+    IllegalFuncCall(Expr),
 }
 
 impl fmt::Display for Error {
@@ -28,6 +29,7 @@ impl fmt::Display for Error {
             Error::Assign(expr) => write!(f, "error assigning to variable: expected a var, found {:?}", expr),
             Error::UnificationUnsupported => write!(f, "unification with the '=' operator is unsupported. use ':=' for assignment or '==' for comparison"),
             Error::IllegalOpcodeConversion(opcode) => write!(f, "no opcode conversion for {:?}", opcode),
+            Error::IllegalFuncCall(expr) => write!(f, "illegal function call reference: {:?}", expr),
         }
     }
 }
@@ -699,11 +701,26 @@ impl TryFrom<tree::ExprCall<'_>> for Expr {
         for arg in args {
             new_args.push(Expr::try_from(arg)?);
         }
-        let mut items = Vec::new();
-        items.push(target);
-        items.append(&mut new_args);
-        // TODO fix this
-        Ok(Expr::FuncCall("hello".to_string(), items))
+
+        let result = match target {
+            Expr::Var(name) => Expr::FuncCall(name.to_string(), new_args),
+            Expr::Index(items) => {
+                if !items.iter().all(|e| matches!(e, Expr::Var(_))) {
+                    return Err(Error::IllegalFuncCall(Expr::Index(items)));
+                }
+                let name = items
+                    .into_iter()
+                    .filter_map(|expr| match expr {
+                        Expr::Var(v) => Some(v),
+                        _ => None,
+                    })
+                    .collect::<Vec<String>>()
+                    .join(".");
+                Expr::FuncCall(name, new_args)
+            }
+            expr => return Err(Error::IllegalFuncCall(expr)),
+        };
+        Ok(result)
     }
 }
 
@@ -785,7 +802,7 @@ impl TryFrom<tree::Statement<'_>> for Expr {
 mod tests {
     use super::*;
 
-    use crate::parser::parse_module;
+    use crate::parser::{parse_module, parse_query};
 
     #[test]
     fn test_convert_module() {
@@ -828,6 +845,38 @@ mod tests {
             let module = parse_module(input).unwrap();
             let error = Module::try_from(module).unwrap_err();
             assert_eq!(expected_err, &error);
+        }
+    }
+
+    #[test]
+    fn test_functions() {
+        let cases = [
+            (
+                "afunction(3, 4)",
+                Ok(Expr::FuncCall(
+                    "afunction".to_string(),
+                    vec![
+                        Expr::Scalar(Value::Number(3.into())),
+                        Expr::Scalar(Value::Number(4.into())),
+                    ],
+                )),
+            ),
+            (
+                "dotted.function()",
+                Ok(Expr::FuncCall("dotted.function".to_string(), vec![])),
+            ),
+            (
+                "[3]()",
+                Err(Error::IllegalFuncCall(Expr::Collection(Collection::Array(
+                    vec![Expr::Scalar(Value::Number(3.into()))],
+                )))),
+            ),
+        ];
+
+        for (input, expected) in &cases {
+            let query = parse_query(input).unwrap();
+            let result = Expr::try_from(query);
+            assert_eq!(*expected, result);
         }
     }
 }
