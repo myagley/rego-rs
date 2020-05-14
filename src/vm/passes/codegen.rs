@@ -62,6 +62,8 @@ impl Codegen {
             Opcode::Sub => self.instructions.push(Ir::BinOp(BinOp::Sub)),
             Opcode::Mul => self.instructions.push(Ir::BinOp(BinOp::Mul)),
             Opcode::Div => self.instructions.push(Ir::BinOp(BinOp::Div)),
+            Opcode::And => self.instructions.push(Ir::BinOp(BinOp::And)),
+            Opcode::Or => self.instructions.push(Ir::BinOp(BinOp::Or)),
             Opcode::Lt => self.instructions.push(Ir::BinOp(BinOp::Lt)),
             Opcode::Lte => self.instructions.push(Ir::BinOp(BinOp::Lte)),
             Opcode::Gt => self.instructions.push(Ir::BinOp(BinOp::Gt)),

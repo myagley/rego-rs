@@ -79,6 +79,8 @@ pub enum BinOp {
     Sub,
     Mul,
     Div,
+    And,
+    Or,
     Lt,
     Lte,
     Gt,
@@ -94,6 +96,20 @@ impl BinOp {
             BinOp::Sub => left - right,
             BinOp::Mul => left * right,
             BinOp::Div => left / right,
+            BinOp::And => {
+                if left.is_true() && right.is_true() {
+                    Value::Bool(true)
+                } else {
+                    Value::Undefined
+                }
+            }
+            BinOp::Or => {
+                if left.is_true() || right.is_true() {
+                    Value::Bool(true)
+                } else {
+                    Value::Undefined
+                }
+            }
             BinOp::Lt => left.lt(&right).into(),
             BinOp::Lte => left.le(&right).into(),
             BinOp::Gt => left.gt(&right).into(),
@@ -111,6 +127,8 @@ impl fmt::Display for BinOp {
             BinOp::Sub => write!(f, "sub"),
             BinOp::Mul => write!(f, "mul"),
             BinOp::Div => write!(f, "div"),
+            BinOp::And => write!(f, "and"),
+            BinOp::Or => write!(f, "or"),
             BinOp::Lt => write!(f, "lt"),
             BinOp::Lte => write!(f, "lte"),
             BinOp::Gt => write!(f, "gt"),
@@ -741,6 +759,36 @@ mod tests {
         assert_eq!(expected, result);
 
         let result = query.eval(Value::Number(2.into())).unwrap();
+        let expected = Value::String("world".to_string());
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn test_complete_rule_multiple_statements() {
+        let module = r###"
+            package opa.test
+
+            default a = "world"
+
+            a := "hello" {
+                input >= 2
+                input >= 4
+            }
+        "###;
+        let module = parse_module(&module).unwrap();
+        let module = Module::try_from(module).unwrap();
+
+        let query = "data.opa.test.a";
+        let query = parse_query(&query).unwrap();
+        let query = Expr::try_from(query).unwrap();
+
+        let query = CompiledQuery::compile(query, vec![module]).unwrap();
+        println!("{}", query);
+        let result = query.eval(Value::Number(4.into())).unwrap();
+        let expected = Value::String("hello".to_string());
+        assert_eq!(expected, result);
+
+        let result = query.eval(Value::Number(3.into())).unwrap();
         let expected = Value::String("world".to_string());
         assert_eq!(expected, result);
     }
