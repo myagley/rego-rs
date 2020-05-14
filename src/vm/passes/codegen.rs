@@ -272,7 +272,7 @@ impl fmt::Display for Codegen {
             self.labels.iter().map(|(k, v)| (*v, k.as_str())).collect();
         for (i, instruction) in self.instructions.iter().enumerate() {
             if let Some(label) = label_lookup.get(&i) {
-                writeln!(f, "      {}", label)?;
+                writeln!(f, "       {}", label)?;
             }
             writeln!(f, "{:>5}: {}", i, instruction)?;
         }

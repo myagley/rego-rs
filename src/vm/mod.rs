@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::{fmt, mem};
 
+use tracing::trace;
 use typed_arena::Arena;
 
 use crate::ast::*;
@@ -224,6 +225,8 @@ impl CompiledQuery {
         query.accept(&mut passes::ConstEval)?;
         codegen.push_label("$__query");
         query.accept(&mut codegen)?;
+
+        trace!(msg = "generated code", code = %format!("\n{}", codegen));
         let query = CompiledQuery {
             instructions: Arc::new(codegen.assemble()?),
         };
@@ -268,8 +271,9 @@ impl<'a> Instance<'a> {
         let mut pc = 0;
         self.opstack.clear();
 
+        trace!("eval start");
         while pc < self.instructions.len() {
-            println!("{:>5}: {}", pc, self.instructions[pc]);
+            trace!(pc = pc, inst = %self.instructions[pc]);
 
             match self.instructions[pc] {
                 LoadGlobal => self.opstack.push(&self.input)?,
@@ -422,6 +426,7 @@ impl<'a> Instance<'a> {
         }
         let result = self.opstack.pop().map(|o| o.clone());
         debug_assert!(self.opstack.len() == 0);
+        trace!("eval complete");
         result
     }
 }
@@ -431,11 +436,25 @@ mod tests {
     use super::*;
 
     use std::convert::TryFrom;
+    use std::sync::Once;
 
     use crate::parser::{parse_module, parse_query};
 
+    static INIT: Once = Once::new();
+
+    fn init() {
+        INIT.call_once(|| {
+            let filter = tracing_subscriber::EnvFilter::from_default_env();
+            let _subscriber = tracing_subscriber::fmt()
+                .with_env_filter(filter)
+                .with_writer(std::io::stdout)
+                .init();
+        })
+    }
+
     #[test]
     fn eval() {
+        init();
         let instructions = vec![
             Instruction::LoadImmediate(Value::Number(3.into())),
             Instruction::LoadImmediate(Value::Number(4.into())),
@@ -445,13 +464,13 @@ mod tests {
         let query = CompiledQuery {
             instructions: Arc::new(instructions),
         };
-        println!("{}", query);
         let result = query.eval(Value::Undefined);
         println!("result: {:?}", result);
     }
 
     #[test]
     fn test_function_call() {
+        init();
         let instructions = vec![
             Instruction::Jump(5),
             Instruction::LoadImmediate(Value::Number(3.into())),
@@ -464,7 +483,6 @@ mod tests {
         let query = CompiledQuery {
             instructions: Arc::new(instructions),
         };
-        println!("{}", query);
         let result = query.eval(Value::Undefined).unwrap();
         assert_eq!(Value::Number(7.into()), result);
         println!("result: {:?}", result);
@@ -472,6 +490,7 @@ mod tests {
 
     #[test]
     fn test_branch_undefined() {
+        init();
         let instructions = vec![
             Instruction::Jump(10),
             Instruction::LoadImmediate(Value::Number(3.into())),
@@ -489,7 +508,6 @@ mod tests {
         let query = CompiledQuery {
             instructions: Arc::new(instructions),
         };
-        println!("{}", query);
         let result = query.eval(Value::Undefined).unwrap();
         assert_eq!(Value::Number(3.into()), result);
         println!("result: {:?}", result);
@@ -497,22 +515,22 @@ mod tests {
 
     #[test]
     fn compile() {
+        init();
         let input = "(3 + 4) == 3";
         let term = parse_query(&input).unwrap();
         let expr = Expr::try_from(term).unwrap();
         let query = CompiledQuery::from_query(expr).unwrap();
-        println!("{}", query);
         let result = query.eval(Value::Undefined);
         println!("result: {:?}", result);
     }
 
     #[test]
     fn test_array() {
+        init();
         let input = "[[3, 2], 2, 3]";
         let term = parse_query(&input).unwrap();
         let expr = Expr::try_from(term).unwrap();
         let query = CompiledQuery::from_query(expr).unwrap();
-        println!("{}", query);
         let result = query
             .eval(Value::Undefined)
             .unwrap()
@@ -528,11 +546,11 @@ mod tests {
 
     #[test]
     fn test_set() {
+        init();
         let input = "{[3, 2], 2, 3}";
         let term = parse_query(&input).unwrap();
         let expr = Expr::try_from(term).unwrap();
         let query = CompiledQuery::from_query(expr).unwrap();
-        println!("{}", query);
         let result = query
             .eval(Value::Undefined)
             .unwrap()
@@ -550,11 +568,11 @@ mod tests {
 
     #[test]
     fn test_object() {
+        init();
         let input = "{\"three\": 3, \"two\": 2}";
         let term = parse_query(&input).unwrap();
         let expr = Expr::try_from(term).unwrap();
         let query = CompiledQuery::from_query(expr).unwrap();
-        println!("{}", query);
         let result = query
             .eval(Value::Undefined)
             .unwrap()
@@ -568,6 +586,7 @@ mod tests {
 
     #[test]
     fn test_array_index() {
+        init();
         let input = "[[3, 2], 2, 3][0][1]";
         let term = parse_query(&input).unwrap();
         let expr = Expr::try_from(term).unwrap();
@@ -579,6 +598,7 @@ mod tests {
 
     #[test]
     fn test_object_index() {
+        init();
         let input = "{\"three\": 3, \"two\": 2}[\"three\"]";
         let term = parse_query(&input).unwrap();
         let expr = Expr::try_from(term).unwrap();
@@ -590,6 +610,7 @@ mod tests {
 
     #[test]
     fn test_data_input() {
+        init();
         let query = "input.a == 3";
         let term = parse_query(&query).unwrap();
         let expr = Expr::try_from(term).unwrap();
@@ -603,6 +624,7 @@ mod tests {
 
     #[test]
     fn test_default_rule() {
+        init();
         let module = r###"
             package opa.test
 
@@ -616,7 +638,6 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        println!("{}", query);
         let result = query.eval(Value::Null).unwrap();
         let expected = Value::Bool(true);
         assert_eq!(expected, result);
@@ -624,6 +645,7 @@ mod tests {
 
     #[test]
     fn test_complete_rule() {
+        init();
         let module = r###"
             package opa.test
 
@@ -637,7 +659,6 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        println!("{}", query);
         let result = query.eval(Value::Null).unwrap();
         let expected = Value::String("hello".to_string());
         assert_eq!(expected, result);
@@ -645,6 +666,7 @@ mod tests {
 
     #[test]
     fn test_complete_rule_multiple_clauses() {
+        init();
         let module = r###"
             package opa.test
 
@@ -659,7 +681,6 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        println!("{}", query);
         let result = query.eval(Value::Null).unwrap();
         let expected = Value::String("hello".to_string());
         assert_eq!(expected, result);
@@ -667,6 +688,7 @@ mod tests {
 
     #[test]
     fn test_complete_rule_single_clause_default() {
+        init();
         let module = r###"
             package opa.test
 
@@ -682,7 +704,6 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        println!("{}", query);
         let result = query.eval(Value::Null).unwrap();
         let expected = Value::String("world".to_string());
         assert_eq!(expected, result);
@@ -690,6 +711,7 @@ mod tests {
 
     #[test]
     fn test_complete_rule_multiple_clauses_default() {
+        init();
         let module = r###"
             package opa.test
 
@@ -706,7 +728,6 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        println!("{}", query);
         let result = query.eval(Value::Null).unwrap();
         let expected = Value::String("world".to_string());
         assert_eq!(expected, result);
@@ -714,6 +735,7 @@ mod tests {
 
     #[test]
     fn test_complete_rule_multiple_rules() {
+        init();
         let module = r###"
             package opa.test
 
@@ -732,7 +754,6 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        println!("{}", query);
         let result = query.eval(Value::Null).unwrap();
         let expected = Value::String("hello".to_string());
         assert_eq!(expected, result);
@@ -740,6 +761,7 @@ mod tests {
 
     #[test]
     fn test_complete_rule_input() {
+        init();
         let module = r###"
             package opa.test
 
@@ -757,7 +779,6 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        println!("{}", query);
         let result = query.eval(Value::Number(3.into())).unwrap();
         let expected = Value::String("hello".to_string());
         assert_eq!(expected, result);
@@ -769,6 +790,7 @@ mod tests {
 
     #[test]
     fn test_complete_rule_multiple_statements() {
+        init();
         let module = r###"
             package opa.test
 
@@ -787,7 +809,6 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        println!("{}", query);
         let result = query.eval(Value::Number(4.into())).unwrap();
         let expected = Value::String("hello".to_string());
         assert_eq!(expected, result);
@@ -799,6 +820,7 @@ mod tests {
 
     #[test]
     fn test_local_var() {
+        init();
         let module = r###"
             package opa.test
 
@@ -818,7 +840,6 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        println!("{}", query);
         let result = query.eval(Value::Number(4.into())).unwrap();
         let expected = Value::String("hello".to_string());
         assert_eq!(expected, result);
@@ -830,6 +851,7 @@ mod tests {
 
     #[test]
     fn test_complete_elses() {
+        init();
         let module = r###"
             package opa.test
 
@@ -853,7 +875,6 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        println!("{}", query);
         let result = query.eval(Value::Number(3.into())).unwrap();
         let expected = Value::String("hello".to_string());
         assert_eq!(expected, result);
