@@ -26,8 +26,6 @@ pub enum Ir {
     /// Pop two operands from opstack, apply binop, and push result to opstack
     BinOp(BinOp),
 
-    /// Label - noop
-    Label(String),
     /// Push frame onto callstack and jump to label
     Call(String),
     /// Pop frame off callstack
@@ -55,7 +53,6 @@ impl fmt::Display for Ir {
             Self::Dup => write!(f, "dup"),
             Self::Pop => write!(f, "pop"),
             Self::BinOp(op) => write!(f, "binop {}", op),
-            Self::Label(label) => write!(f, "label({})", label),
             Self::Call(pc) => write!(f, "call {}", pc),
             Self::Return => write!(f, "ret"),
             Self::Jump(pc) => write!(f, "jump {}", pc),

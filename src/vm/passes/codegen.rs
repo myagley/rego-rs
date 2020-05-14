@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 
 use crate::ast::*;
 use crate::value::Value;
@@ -18,11 +19,12 @@ impl Codegen {
         }
     }
 
+    pub fn push_label(&mut self, label: &str) {
+        self.labels
+            .insert(label.to_string(), self.instructions.len());
+    }
+
     pub fn push_ir(&mut self, ir: Ir) {
-        if let Ir::Label(ref label) = ir {
-            self.labels
-                .insert(label.to_string(), self.instructions.len());
-        }
         self.instructions.push(ir);
     }
 
@@ -41,7 +43,6 @@ impl Codegen {
                 Ir::Dup => Ok(Instruction::Dup),
                 Ir::Pop => Ok(Instruction::Pop),
                 Ir::BinOp(op) => Ok(Instruction::BinOp(op)),
-                Ir::Label(label) => Ok(Instruction::Label(label)),
                 Ir::Call(label) => labels
                     .get(&label)
                     .map(|pc| Instruction::Call(*pc))
@@ -114,10 +115,6 @@ impl Codegen {
             }
         }
         Ok(())
-    }
-
-    fn push_label(&mut self, label: &str) {
-        self.push_ir(Ir::Label(label.to_string()));
     }
 
     fn push_comprehension(&mut self, _comprehension: &mut Comprehension) -> Result<(), Error> {
@@ -234,6 +231,20 @@ impl Visitor for Codegen {
                 println!("{:?}", e);
                 todo!()
             }
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for Codegen {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let label_lookup: HashMap<usize, &str> =
+            self.labels.iter().map(|(k, v)| (*v, k.as_str())).collect();
+        for (i, instruction) in self.instructions.iter().enumerate() {
+            if let Some(label) = label_lookup.get(&i) {
+                writeln!(f, "      {}", label)?;
+            }
+            writeln!(f, "{:>5}: {}", i, instruction)?;
         }
         Ok(())
     }

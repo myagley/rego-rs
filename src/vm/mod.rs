@@ -51,8 +51,6 @@ pub enum Instruction {
     /// Pop two operands from opstack, apply binop, and push result to opstack
     BinOp(BinOp),
 
-    /// Label - noop
-    Label(String),
     /// Push frame onto callstack and jump to immediate instruction
     Call(usize),
     /// Pop frame off callstack
@@ -80,7 +78,6 @@ impl fmt::Display for Instruction {
             Self::Dup => write!(f, "dup"),
             Self::Pop => write!(f, "pop"),
             Self::BinOp(op) => write!(f, "binop {}", op),
-            Self::Label(label) => write!(f, "label({})", label),
             Self::Call(pc) => write!(f, "call {}", pc),
             Self::Return => write!(f, "ret"),
             Self::Jump(pc) => write!(f, "jump {}", pc),
@@ -238,7 +235,7 @@ impl CompiledQuery {
         let mut rules = passes::RuleResolver::new(&vec![]);
         expr.accept(&mut rules)?;
         expr.accept(&mut passes::ConstEval)?;
-        codegen.push_ir(Ir::Label("$__query".to_string()));
+        codegen.push_label("$__query");
         expr.accept(&mut codegen)?;
 
         let query = CompiledQuery {
@@ -263,10 +260,7 @@ impl CompiledQuery {
 impl fmt::Display for CompiledQuery {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for (i, instruction) in self.instructions.iter().enumerate() {
-            match instruction {
-                Instruction::Label(_) => writeln!(f, "{:>5}: {}", i, instruction)?,
-                _ => writeln!(f, "{:>5}:    {}", i, instruction)?,
-            }
+            writeln!(f, "{:>5}: {}", i, instruction)?;
         }
         Ok(())
     }
@@ -385,7 +379,6 @@ impl<'a> Instance<'a> {
                     };
                     self.opstack.push(result)?;
                 }
-                Label(ref _l) => (),
                 Call(jpc) => {
                     let prev = mem::replace(&mut self.locals, HashMap::new());
                     let frame = Frame { locals: prev, pc };
@@ -456,7 +449,6 @@ mod tests {
     #[test]
     fn eval() {
         let instructions = vec![
-            Instruction::Label("start".to_string()),
             Instruction::LoadImmediate(Value::Number(3.into())),
             Instruction::LoadImmediate(Value::Number(4.into())),
             Instruction::BinOp(BinOp::Add),
@@ -473,13 +465,11 @@ mod tests {
     #[test]
     fn test_function_call() {
         let instructions = vec![
-            Instruction::Jump(6),
-            Instruction::Label("add".to_string()),
+            Instruction::Jump(5),
             Instruction::LoadImmediate(Value::Number(3.into())),
             Instruction::LoadImmediate(Value::Number(4.into())),
             Instruction::BinOp(BinOp::Add),
             Instruction::Return,
-            Instruction::Label("start".to_string()),
             Instruction::Call(1),
         ];
 
@@ -495,8 +485,7 @@ mod tests {
     #[test]
     fn test_branch_undefined() {
         let instructions = vec![
-            Instruction::Jump(11),
-            Instruction::Label("add".to_string()),
+            Instruction::Jump(10),
             Instruction::LoadImmediate(Value::Number(3.into())),
             Instruction::LoadImmediate(Value::Null),
             Instruction::BinOp(BinOp::Add),
@@ -506,7 +495,6 @@ mod tests {
             Instruction::Pop,
             Instruction::LoadImmediate(Value::Number(3.into())),
             Instruction::Return,
-            Instruction::Label("start".to_string()),
             Instruction::Call(1),
         ];
 
