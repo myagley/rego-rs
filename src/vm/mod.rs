@@ -189,28 +189,11 @@ pub struct CompiledQuery {
 }
 
 impl CompiledQuery {
-    pub fn from_query(mut expr: Expr) -> Result<Self, Error> {
-        // Input resolution
-        let mut input = passes::InputResolver::new();
-        expr.accept(&mut input)?;
-
-        // rule resolution
-        let mut rules = passes::RuleResolver::new(&vec![]);
-        expr.accept(&mut rules)?;
-
-        // const eval
-        expr.accept(&mut passes::ConstEval)?;
-
-        let mut codegen = passes::Codegen::new();
-        expr.accept(&mut codegen)?;
-
-        let query = CompiledQuery {
-            instructions: Arc::new(codegen.assemble()?),
-        };
-        Ok(query)
+    pub fn from_query(query: Expr) -> Result<Self, Error> {
+        Self::compile(query, vec![])
     }
 
-    pub fn compile(mut expr: Expr, mut modules: Vec<Module>) -> Result<Self, Error> {
+    pub fn compile(mut query: Expr, mut modules: Vec<Module>) -> Result<Self, Error> {
         let mut codegen = passes::Codegen::new();
         codegen.push_ir(Ir::Jump("$__query".to_string()));
 
@@ -231,13 +214,16 @@ impl CompiledQuery {
         }
 
         // Compile the query
+        // Input resolution
+        let mut input = passes::InputResolver::new();
+        query.accept(&mut input)?;
+
         // rule resolution
         let mut rules = passes::RuleResolver::new(&vec![]);
-        expr.accept(&mut rules)?;
-        expr.accept(&mut passes::ConstEval)?;
+        query.accept(&mut rules)?;
+        query.accept(&mut passes::ConstEval)?;
         codegen.push_label("$__query");
-        expr.accept(&mut codegen)?;
-
+        query.accept(&mut codegen)?;
         let query = CompiledQuery {
             instructions: Arc::new(codegen.assemble()?),
         };
