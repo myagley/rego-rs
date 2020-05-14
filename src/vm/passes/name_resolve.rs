@@ -199,13 +199,64 @@ impl InputResolver {
         }
         Ok(())
     }
+
+    fn visit_clausebody(&mut self, body: &mut ClauseBody) -> Result<(), Error> {
+        match body {
+            ClauseBody::Query(query) => query.accept(self)?,
+            ClauseBody::WithElses(query, elses) => {
+                query.accept(self)?;
+                for el in elses {
+                    if let Some(value) = el.value_mut() {
+                        value.accept(self)?;
+                    }
+                    el.query_mut().accept(self)?;
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Visitor for InputResolver {
     type Value = ();
     type Error = Error;
 
-    fn visit_module(&mut self, _module: &mut Module) -> Result<Self::Value, Self::Error> {
+    fn visit_module(&mut self, module: &mut Module) -> Result<Self::Value, Self::Error> {
+        for rule in module.rules_mut() {
+            if let Some(default) = rule.default.as_mut() {
+                default.accept(self)?;
+            }
+
+            match &mut rule.body {
+                Body::Default(value) => value.accept(self)?,
+                Body::Complete(clauses) => {
+                    for clause in clauses {
+                        clause.value.accept(self)?;
+                        self.visit_clausebody(&mut clause.body)?;
+                    }
+                }
+                Body::Set(clauses) => {
+                    for clause in clauses {
+                        clause.key.accept(self)?;
+                        clause.body.accept(self)?;
+                    }
+                }
+                Body::Object(clauses) => {
+                    for clause in clauses {
+                        clause.key.accept(self)?;
+                        clause.value.accept(self)?;
+                        clause.body.accept(self)?;
+                    }
+                }
+                Body::Function(clauses) => {
+                    for clause in clauses {
+                        self.visit_vec(&mut clause.args)?;
+                        clause.value.accept(self)?;
+                        self.visit_clausebody(&mut clause.body)?;
+                    }
+                }
+            }
+        }
         Ok(())
     }
 

@@ -715,4 +715,33 @@ mod tests {
         let expected = Value::String("hello".to_string());
         assert_eq!(expected, result);
     }
+
+    #[test]
+    fn test_complete_rule_input() {
+        let module = r###"
+            package opa.test
+
+            default a = "world"
+
+            a := "hello" {
+                input == 3
+            }
+        "###;
+        let module = parse_module(&module).unwrap();
+        let module = Module::try_from(module).unwrap();
+
+        let query = "data.opa.test.a";
+        let query = parse_query(&query).unwrap();
+        let query = Expr::try_from(query).unwrap();
+
+        let query = CompiledQuery::compile(query, vec![module]).unwrap();
+        println!("{}", query);
+        let result = query.eval(Value::Number(3.into())).unwrap();
+        let expected = Value::String("hello".to_string());
+        assert_eq!(expected, result);
+
+        let result = query.eval(Value::Number(2.into())).unwrap();
+        let expected = Value::String("world".to_string());
+        assert_eq!(expected, result);
+    }
 }
