@@ -210,7 +210,7 @@ impl CompiledQuery {
 
     pub fn compile(mut expr: Expr, mut modules: Vec<Module>) -> Result<Self, Error> {
         let mut codegen = passes::Codegen::new();
-        codegen.push_ir(Ir::Jump("$_query".to_string()));
+        codegen.push_ir(Ir::Jump("$__query".to_string()));
 
         for module in &mut modules {
             // Input resolution
@@ -233,7 +233,7 @@ impl CompiledQuery {
         let mut rules = passes::RuleResolver::new(&vec![]);
         expr.accept(&mut rules)?;
         expr.accept(&mut passes::ConstEval)?;
-        codegen.push_ir(Ir::Label("$_query".to_string()));
+        codegen.push_ir(Ir::Label("$__query".to_string()));
         expr.accept(&mut codegen)?;
 
         let query = CompiledQuery {
@@ -606,6 +606,101 @@ mod tests {
             package opa.test
 
             a := "hello"
+        "###;
+        let module = parse_module(&module).unwrap();
+        let module = Module::try_from(module).unwrap();
+
+        let query = "data.opa.test.a";
+        let query = parse_query(&query).unwrap();
+        let query = Expr::try_from(query).unwrap();
+
+        let query = CompiledQuery::compile(query, vec![module]).unwrap();
+        println!("{}", query);
+        let result = query.eval(Value::Null).unwrap();
+        let expected = Value::String("hello".to_string());
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn test_complete_rule_multiple_clauses() {
+        let module = r###"
+            package opa.test
+
+            a := "hello" { 3 == 2 }
+            a := "hello"
+        "###;
+        let module = parse_module(&module).unwrap();
+        let module = Module::try_from(module).unwrap();
+
+        let query = "data.opa.test.a";
+        let query = parse_query(&query).unwrap();
+        let query = Expr::try_from(query).unwrap();
+
+        let query = CompiledQuery::compile(query, vec![module]).unwrap();
+        println!("{}", query);
+        let result = query.eval(Value::Null).unwrap();
+        let expected = Value::String("hello".to_string());
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn test_complete_rule_single_clause_default() {
+        let module = r###"
+            package opa.test
+
+            default a = "world"
+
+            a := "hello" { false }
+        "###;
+        let module = parse_module(&module).unwrap();
+        let module = Module::try_from(module).unwrap();
+
+        let query = "data.opa.test.a";
+        let query = parse_query(&query).unwrap();
+        let query = Expr::try_from(query).unwrap();
+
+        let query = CompiledQuery::compile(query, vec![module]).unwrap();
+        println!("{}", query);
+        let result = query.eval(Value::Null).unwrap();
+        let expected = Value::String("world".to_string());
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn test_complete_rule_multiple_clauses_default() {
+        let module = r###"
+            package opa.test
+
+            default a = "world"
+
+            a := "hello" { false }
+            a := "hello" { false }
+        "###;
+        let module = parse_module(&module).unwrap();
+        let module = Module::try_from(module).unwrap();
+
+        let query = "data.opa.test.a";
+        let query = parse_query(&query).unwrap();
+        let query = Expr::try_from(query).unwrap();
+
+        let query = CompiledQuery::compile(query, vec![module]).unwrap();
+        println!("{}", query);
+        let result = query.eval(Value::Null).unwrap();
+        let expected = Value::String("world".to_string());
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn test_complete_rule_multiple_rules() {
+        let module = r###"
+            package opa.test
+
+            default a = "world"
+
+            b := 3
+            a := "hello" {
+                b == 3
+            }
         "###;
         let module = parse_module(&module).unwrap();
         let module = Module::try_from(module).unwrap();

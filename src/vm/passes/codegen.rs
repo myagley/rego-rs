@@ -127,6 +127,50 @@ impl Codegen {
         }
         Ok(())
     }
+
+    fn push_complete_clause(
+        &mut self,
+        name: &str,
+        clause: &mut CompleteClause,
+    ) -> Result<(), Error> {
+        self.push_label(name);
+        self.push_clausebody(&mut clause.body)?;
+        self.push_ir(Ir::BranchTrue(3));
+        self.push_ir(Ir::LoadImmediate(Value::Undefined));
+        self.push_ir(Ir::Return);
+        clause.value.accept(self)?;
+        self.push_ir(Ir::Return);
+        Ok(())
+    }
+
+    fn push_complete_rule(
+        &mut self,
+        name: &str,
+        clauses: &mut [CompleteClause],
+    ) -> Result<(), Error> {
+        match clauses {
+            &mut [] => self.push_label(name),
+            // TODO(miyagley) - optimize for single clause?
+            // &mut [ref mut clause] => self.push_complete_clause(&name, clause)?,
+            clauses => {
+                // Push each clause with a unique label
+                for (i, clause) in clauses.iter_mut().enumerate() {
+                    self.push_complete_clause(&format!("$__{}-{}", name, i), clause)?;
+                }
+
+                // Call each clause in sequence and early return if defined
+                self.push_label(name);
+                for (i, _clause) in clauses.iter_mut().enumerate() {
+                    self.push_ir(Ir::Call(format!("$__{}-{}", name, i)));
+                    self.push_ir(Ir::Dup);
+                    self.push_ir(Ir::BranchUndefined(2));
+                    self.push_ir(Ir::Return);
+                    self.push_ir(Ir::Pop);
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Visitor for Codegen {
@@ -136,30 +180,19 @@ impl Visitor for Codegen {
     fn visit_module(&mut self, module: &mut Module) -> Result<Self::Value, Self::Error> {
         for rule in module.rules_mut() {
             match &mut rule.body {
-                Body::Complete(clauses) => match clauses.as_mut_slice() {
-                    &mut [] => {
-                        self.push_label(&rule.name);
-                        // No clauses. Codegen the default or undefined
-                        if let Some(default) = rule.default.as_mut() {
-                            default.accept(self)?;
-                        } else {
-                            self.instructions.push(Ir::LoadImmediate(Value::Undefined));
-                        }
-                        self.instructions.push(Ir::Return);
-                    }
-                    &mut [ref mut clause] => {
-                        self.push_label(&rule.name);
-                        self.push_clausebody(&mut clause.body)?;
-                        self.push_ir(Ir::BranchTrue(3));
-                        self.push_ir(Ir::LoadImmediate(Value::Undefined));
-                        self.push_ir(Ir::Return);
-                        clause.value.accept(self)?;
-                        self.push_ir(Ir::Return);
-                    }
-                    clauses => todo!(),
-                },
+                Body::Complete(clauses) => {
+                    self.push_complete_rule(&rule.name, clauses.as_mut_slice())?
+                }
                 _ => todo!(),
             }
+
+            // Handle the default
+            if let Some(default) = rule.default.as_mut() {
+                default.accept(self)?;
+            } else {
+                self.instructions.push(Ir::LoadImmediate(Value::Undefined));
+            }
+            self.instructions.push(Ir::Return);
         }
         Ok(())
     }
