@@ -1,7 +1,7 @@
 use std::fmt;
 
-use crate::Error;
 use crate::value::{to_value, Map, Number, Value};
+use crate::Error;
 
 pub struct Serializer;
 
@@ -109,7 +109,11 @@ impl serde::Serializer for Serializer {
     }
 
     #[inline]
-    fn serialize_newtype_struct<T>(self, _name: &'static str, value: &T) -> Result<Self::Ok, Self::Error>
+    fn serialize_newtype_struct<T>(
+        self,
+        _name: &'static str,
+        value: &T,
+    ) -> Result<Self::Ok, Self::Error>
     where
         T: ?Sized + serde::Serialize,
     {
@@ -182,7 +186,11 @@ impl serde::Serializer for Serializer {
         })
     }
 
-    fn serialize_struct(self, _name: &'static str, len: usize) -> Result<Self::SerializeStruct, Self::Error> {
+    fn serialize_struct(
+        self,
+        _name: &'static str,
+        len: usize,
+    ) -> Result<Self::SerializeStruct, Self::Error> {
         self.serialize_map(Some(len))
     }
 
@@ -349,7 +357,8 @@ impl serde::ser::SerializeStructVariant for SerializeStructVariant {
     where
         T: ?Sized + serde::Serialize,
     {
-        self.map.insert(Value::String(String::from(key)), to_value(&value)?);
+        self.map
+            .insert(Value::String(String::from(key)), to_value(&value)?);
         Ok(())
     }
 

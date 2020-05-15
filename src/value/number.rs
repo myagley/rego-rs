@@ -263,7 +263,7 @@ impl<'de> Deserialize<'de> for Number {
 
 macro_rules! deserialize_number {
     ($deserialize:ident => $visit:ident) => {
-        fn $deserialize<V>(self, visitor: V) -> Result<V::Value, Error<'de>>
+        fn $deserialize<V>(self, visitor: V) -> Result<V::Value, Error<'static>>
         where
             V: Visitor<'de>,
         {
@@ -273,10 +273,10 @@ macro_rules! deserialize_number {
 }
 
 impl<'de> Deserializer<'de> for Number {
-    type Error = Error<'de>;
+    type Error = Error<'static>;
 
     #[inline]
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Error<'de>>
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Error<'static>>
     where
         V: Visitor<'de>,
     {
@@ -306,10 +306,10 @@ impl<'de> Deserializer<'de> for Number {
 }
 
 impl<'de, 'a> Deserializer<'de> for &'a Number {
-    type Error = Error<'de>;
+    type Error = Error<'static>;
 
     #[inline]
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Error<'de>>
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Error<'static>>
     where
         V: Visitor<'de>,
     {
@@ -415,6 +415,16 @@ macro_rules! impl_binop {
 
         forward_ref_binop! { impl $imp, $method for $t, $t }
     };
+}
+
+impl Number {
+    pub(crate) fn unexpected(&self) -> serde::de::Unexpected {
+        match self.n {
+            N::PosInt(u) => serde::de::Unexpected::Unsigned(u),
+            N::NegInt(i) => serde::de::Unexpected::Signed(i),
+            N::Float(f) => serde::de::Unexpected::Float(f.into_inner()),
+        }
+    }
 }
 
 impl_binop!(impl Add, add for Number);

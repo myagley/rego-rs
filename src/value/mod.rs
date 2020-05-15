@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::ops::{Add, Div, Mul, Sub};
 
+mod de;
 mod from;
 mod index;
 mod number;
@@ -419,6 +420,13 @@ where
     T: serde::Serialize,
 {
     value.serialize(ser::Serializer)
+}
+
+pub fn from_value<T>(value: Value) -> Result<T, crate::Error<'static>>
+where
+    T: serde::de::DeserializeOwned,
+{
+    T::deserialize(value)
 }
 
 #[cfg(test)]

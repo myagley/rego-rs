@@ -7,7 +7,7 @@ mod value;
 mod vm;
 
 pub use error::Error;
-pub use value::{to_value, Number, Value};
+pub use value::{from_value, to_value, Number, Value};
 pub use vm::CompiledQuery;
 
 pub fn compile<'input>(
