@@ -15,4 +15,5 @@ typed-arena = "2"
 lalrpop = "0.18"
 
 [dev-dependencies]
+proptest = "0.9"
 tracing-subscriber = "0.2"

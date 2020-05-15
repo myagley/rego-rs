@@ -175,15 +175,6 @@ impl<'de> serde::Deserializer<'de> for Value {
     where
         V: Visitor<'de>,
     {
-        #[cfg(feature = "raw_value")]
-        {
-            if name == crate::raw::TOKEN {
-                return visitor.visit_map(crate::raw::OwnedRawDeserializer {
-                    raw_value: Some(self.to_string()),
-                });
-            }
-        }
-
         let _ = name;
         visitor.visit_newtype_struct(self)
     }
@@ -217,7 +208,6 @@ impl<'de> serde::Deserializer<'de> for Value {
         V: Visitor<'de>,
     {
         match self {
-            #[cfg(any(feature = "std", feature = "alloc"))]
             Value::String(v) => visitor.visit_string(v),
             _ => Err(self.invalid_type(&visitor)),
         }
@@ -235,7 +225,6 @@ impl<'de> serde::Deserializer<'de> for Value {
         V: Visitor<'de>,
     {
         match self {
-            #[cfg(any(feature = "std", feature = "alloc"))]
             Value::String(v) => visitor.visit_string(v),
             Value::Array(v) => visit_array(v, visitor),
             _ => Err(self.invalid_type(&visitor)),

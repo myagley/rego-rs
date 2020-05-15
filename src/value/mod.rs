@@ -433,6 +433,12 @@ where
 mod tests {
     use super::*;
 
+    use std::collections::HashMap;
+
+    use proptest::collection;
+    use proptest::prelude::*;
+    use serde::{Deserialize, Serialize};
+
     #[test]
     fn smoketest_addition() {
         assert_eq!(
@@ -511,5 +517,142 @@ mod tests {
             Value::from(Number::from(4)),
             Value::from(Number::from(12)) / &Value::from(Number::from(3))
         );
+    }
+
+    macro_rules! test_serde_primitive {
+        ($method:ident, $ty:ty) => {
+            proptest! {
+                #[test]
+                fn $method(b in any::<$ty>()) {
+                    let value = to_value(b).unwrap();
+                    let result = from_value::<$ty>(value).unwrap();
+                    assert_eq!(b, result)
+                }
+            }
+        };
+    }
+
+    test_serde_primitive!(test_serde_bool, bool);
+    test_serde_primitive!(test_serde_i8, i8);
+    test_serde_primitive!(test_serde_u8, u8);
+    test_serde_primitive!(test_serde_i16, i16);
+    test_serde_primitive!(test_serde_u16, u16);
+    test_serde_primitive!(test_serde_i32, i32);
+    test_serde_primitive!(test_serde_u32, u32);
+    test_serde_primitive!(test_serde_i64, i64);
+    test_serde_primitive!(test_serde_u64, u64);
+
+    proptest! {
+        #[test]
+        fn test_serde_string(s in "\\PC*") {
+            let value = to_value(s.clone()).unwrap();
+            let result = from_value::<String>(value).unwrap();
+            assert_eq!(s, result)
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    struct UnitStruct;
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    struct NewTypeStruct(i64);
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    struct TupleStruct(i64, String);
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    enum TestEnum {
+        Unit,
+        NewType(i64),
+        Tuple(i64, String),
+        Struct { age: i64, msg: String },
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    struct Person {
+        name: String,
+        age: u8,
+        properties: HashMap<String, String>,
+    }
+
+    prop_compose! {
+        fn arb_person()(
+            name in any::<String>(),
+            age in any::<u8>(),
+            properties in collection::hash_map(any::<String>(), any::<String>(), 0..10)
+        ) -> Person {
+            Person {
+                name,
+                age,
+                properties,
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_serde_struct(person in arb_person()) {
+            let value = to_value(person.clone()).unwrap();
+            let result = from_value(value).unwrap();
+            assert_eq!(person, result);
+        }
+    }
+
+    #[test]
+    fn test_serde_unit_struct() {
+        let item = UnitStruct;
+        let value = to_value(item.clone()).unwrap();
+        let result = from_value(value).unwrap();
+        assert_eq!(item, result);
+    }
+
+    proptest! {
+        #[test]
+        fn test_serde_new_type_struct(age in any::<i64>()) {
+            let item = NewTypeStruct(age);
+            let value = to_value(item.clone()).unwrap();
+            let result = from_value(value).unwrap();
+            assert_eq!(item, result);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_serde_tuple_struct(age in any::<i64>(), name in any::<String>()) {
+            let item = TupleStruct(age, name);
+            let value = to_value(item.clone()).unwrap();
+            let result = from_value(value).unwrap();
+            assert_eq!(item, result);
+        }
+    }
+
+    prop_compose! {
+        fn arb_enum_tuple()(age in any::<i64>(), name in any::<String>()) -> TestEnum {
+            TestEnum::Tuple(age, name)
+        }
+    }
+
+    prop_compose! {
+        fn arb_enum_struct()(age in any::<i64>(), msg in any::<String>()) -> TestEnum {
+            TestEnum::Struct { age, msg }
+        }
+    }
+
+    fn arb_testenum() -> impl Strategy<Value = TestEnum> {
+        prop_oneof![
+            Just(TestEnum::Unit),
+            any::<i64>().prop_map(TestEnum::NewType),
+            arb_enum_tuple(),
+            arb_enum_struct(),
+        ]
+    }
+
+    proptest! {
+        #[test]
+        fn test_serde_enum(item in arb_testenum()) {
+            let value = to_value(item.clone()).unwrap();
+            let result = from_value(value).unwrap();
+            assert_eq!(item, result);
+        }
     }
 }
