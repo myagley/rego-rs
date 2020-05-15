@@ -5,6 +5,7 @@ use std::ops::{Add, Div, Mul, Sub};
 mod from;
 mod index;
 mod number;
+mod ser;
 
 pub use self::index::Index;
 pub use self::number::Number;
@@ -412,6 +413,13 @@ impl_binop!(impl Add, add);
 impl_binop!(impl Sub, sub);
 impl_binop!(impl Mul, mul);
 impl_binop!(impl Div, div);
+
+pub fn to_value<T>(value: T) -> Result<Value, crate::Error<'static>>
+where
+    T: serde::Serialize,
+{
+    value.serialize(ser::Serializer)
+}
 
 #[cfg(test)]
 mod tests {
