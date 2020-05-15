@@ -2,14 +2,15 @@ use lalrpop_util::lalrpop_mod;
 
 lalrpop_mod!(grammar, "/parser/grammar.rs");
 pub mod lexer;
+mod location;
 mod token;
 pub mod tree;
 
 use self::lexer::Error as LexerError;
 use crate::parser::tree::{Module, Query};
-use crate::Location;
 
 pub use lexer::Lexer;
+pub use location::Location;
 pub use token::Token;
 
 pub type ParseError<'input> = lalrpop_util::ParseError<Location, Token<'input>, LexerError>;

@@ -5,6 +5,7 @@ use ordered_float::{NotNan, OrderedFloat};
 use serde::de::{self, Visitor};
 use serde::{forward_to_deserialize_any, Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::value::InvalidType;
 use crate::Error;
 
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd, Hash)]
@@ -46,17 +47,17 @@ impl Number {
     }
 
     #[inline]
-    pub fn try_into_i64(self) -> Result<i64, Error> {
+    pub fn try_into_i64(self) -> Result<i64, InvalidType> {
         match self.n {
             N::PosInt(n) => {
                 if n <= i64::max_value() as u64 {
                     Ok(n as i64)
                 } else {
-                    Err(Error::InvalidType("i64", "u64"))
+                    Err(InvalidType("i64", "u64"))
                 }
             }
             N::NegInt(n) => Ok(n),
-            N::Float(_) => Err(Error::InvalidType("i64", "f64")),
+            N::Float(_) => Err(InvalidType("i64", "f64")),
         }
     }
 
@@ -76,11 +77,11 @@ impl Number {
     }
 
     #[inline]
-    pub fn try_into_u64(self) -> Result<u64, Error> {
+    pub fn try_into_u64(self) -> Result<u64, InvalidType> {
         match self.n {
             N::PosInt(n) => Ok(n),
-            N::NegInt(_) => Err(Error::InvalidType("u64", "i64")),
-            N::Float(_) => Err(Error::InvalidType("u64", "f64")),
+            N::NegInt(_) => Err(InvalidType("u64", "i64")),
+            N::Float(_) => Err(InvalidType("u64", "f64")),
         }
     }
 
@@ -94,7 +95,7 @@ impl Number {
     }
 
     #[inline]
-    pub fn try_into_f64(self) -> Result<f64, Error> {
+    pub fn try_into_f64(self) -> Result<f64, InvalidType> {
         match self.n {
             N::PosInt(n) => Ok(n as f64),
             N::NegInt(n) => Ok(n as f64),
@@ -260,33 +261,9 @@ impl<'de> Deserialize<'de> for Number {
     }
 }
 
-macro_rules! deserialize_any {
-    (@expand [$($num_string:tt)*]) => {
-        #[inline]
-        fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Error>
-        where
-            V: Visitor<'de>,
-        {
-            match self.n {
-                N::PosInt(i) => visitor.visit_u64(i),
-                N::NegInt(i) => visitor.visit_i64(i),
-                N::Float(f) => visitor.visit_f64(f.into_inner()),
-            }
-        }
-    };
-
-    (owned) => {
-        deserialize_any!(@expand [n]);
-    };
-
-    (ref) => {
-        deserialize_any!(@expand [n.clone()]);
-    };
-}
-
 macro_rules! deserialize_number {
     ($deserialize:ident => $visit:ident) => {
-        fn $deserialize<V>(self, visitor: V) -> Result<V::Value, Error>
+        fn $deserialize<V>(self, visitor: V) -> Result<V::Value, Error<'de>>
         where
             V: Visitor<'de>,
         {
@@ -296,9 +273,19 @@ macro_rules! deserialize_number {
 }
 
 impl<'de> Deserializer<'de> for Number {
-    type Error = Error;
+    type Error = Error<'de>;
 
-    deserialize_any!(owned);
+    #[inline]
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Error<'de>>
+    where
+        V: Visitor<'de>,
+    {
+        match self.n {
+            N::PosInt(i) => visitor.visit_u64(i),
+            N::NegInt(i) => visitor.visit_i64(i),
+            N::Float(f) => visitor.visit_f64(f.into_inner()),
+        }
+    }
 
     deserialize_number!(deserialize_i8 => visit_i8);
     deserialize_number!(deserialize_i16 => visit_i16);
@@ -319,9 +306,19 @@ impl<'de> Deserializer<'de> for Number {
 }
 
 impl<'de, 'a> Deserializer<'de> for &'a Number {
-    type Error = Error;
+    type Error = Error<'de>;
 
-    deserialize_any!(ref);
+    #[inline]
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Error<'de>>
+    where
+        V: Visitor<'de>,
+    {
+        match self.n {
+            N::PosInt(i) => visitor.visit_u64(i),
+            N::NegInt(i) => visitor.visit_i64(i),
+            N::Float(f) => visitor.visit_f64(f.into_inner()),
+        }
+    }
 
     deserialize_number!(deserialize_i8 => visit_i8);
     deserialize_number!(deserialize_i16 => visit_i16);

@@ -61,8 +61,6 @@ pub enum Instruction {
 
     /// Pop value off of opstack, branch to calculated pc if undefined
     BranchUndefined(isize),
-    /// Pop value off of opstack, branch to calculated pc if defined
-    BranchDefined(isize),
     /// Pop value off of opstack, branch to calculated pc if true
     BranchTrue(isize),
 }
@@ -83,7 +81,6 @@ impl fmt::Display for Instruction {
             Self::Return => write!(f, "ret"),
             Self::Jump(pc) => write!(f, "jump {}", pc),
             Self::BranchUndefined(offset) => write!(f, "bundef {}", offset),
-            Self::BranchDefined(offset) => write!(f, "bdef {}", offset),
             Self::BranchTrue(offset) => write!(f, "btrue {}", offset),
         }
     }
@@ -147,7 +144,7 @@ struct Frame<'a> {
     locals: HashMap<&'a str, &'a Value>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Error {
     InvalidNumArgs(usize, usize),
     InvalidValueType(&'static str),
@@ -190,11 +187,12 @@ pub struct CompiledQuery {
 }
 
 impl CompiledQuery {
-    pub fn from_query(query: Expr) -> Result<Self, Error> {
+    #[allow(dead_code)]
+    pub(crate) fn from_query(query: Expr) -> Result<Self, Error> {
         Self::compile(query, vec![])
     }
 
-    pub fn compile(mut query: Expr, mut modules: Vec<Module>) -> Result<Self, Error> {
+    pub(crate) fn compile(mut query: Expr, mut modules: Vec<Module>) -> Result<Self, Error> {
         let mut codegen = passes::Codegen::new();
         codegen.push_ir(Ir::Jump("$__query".to_string()));
 
@@ -233,11 +231,11 @@ impl CompiledQuery {
         Ok(query)
     }
 
-    pub fn eval(&self, input: Value) -> Result<Value, Error> {
+    pub fn eval(&self, input: Value) -> Result<Value, crate::Error<'static>> {
         let mut instance = Instance {
             instructions: self.instructions.clone(),
-            opstack: Stack::new(),
-            callstack: Stack::new(),
+            opstack: Stack::with_capacity(10),
+            callstack: Stack::with_capacity(10),
             heap: Arena::new(),
             locals: HashMap::new(),
             input,
@@ -265,7 +263,7 @@ struct Instance<'m> {
 }
 
 impl<'a> Instance<'a> {
-    fn eval(&'a mut self) -> Result<Value, Error> {
+    fn eval(&'a mut self) -> Result<Value, crate::Error<'static>> {
         use Instruction::*;
 
         let mut pc = 0;
@@ -385,24 +383,12 @@ impl<'a> Instance<'a> {
                     pc = jpc;
                     continue;
                 }
-                BranchDefined(offset) => {
-                    let value = self.opstack.pop()?;
-                    if !value.is_undefined() {
-                        let next = pc as isize + offset;
-                        if next < 0 {
-                            return Err(Error::AddressUnderflow);
-                        } else {
-                            pc = next as usize;
-                            continue;
-                        }
-                    }
-                }
                 BranchUndefined(offset) => {
                     let value = self.opstack.pop()?;
                     if value.is_undefined() {
                         let next = pc as isize + offset;
                         if next < 0 {
-                            return Err(Error::AddressUnderflow);
+                            return Err(Error::AddressUnderflow)?;
                         } else {
                             pc = next as usize;
                             continue;
@@ -414,7 +400,7 @@ impl<'a> Instance<'a> {
                     if value.is_true() {
                         let next = pc as isize + offset;
                         if next < 0 {
-                            return Err(Error::AddressUnderflow);
+                            return Err(Error::AddressUnderflow)?;
                         } else {
                             pc = next as usize;
                             continue;
@@ -427,7 +413,7 @@ impl<'a> Instance<'a> {
         let result = self.opstack.pop().map(|o| o.clone());
         debug_assert!(self.opstack.len() == 0);
         trace!("eval complete");
-        result
+        Ok(result?)
     }
 }
 

@@ -4,8 +4,8 @@ use std::str::Chars;
 
 use ordered_float::NotNan;
 
+use crate::parser::location::{Location, Span, Spanned};
 use crate::parser::token::{StringLiteral, Token};
-use crate::{Location, Span, Spanned};
 
 pub type SpannedToken<'i> = Spanned<Token<'i>>;
 
@@ -175,7 +175,7 @@ impl<'input> Lexer<'input> {
     }
 
     fn slice(&self, start: Location, end: Location) -> &'input str {
-        &self.input[start.absolute.into()..end.absolute.into()]
+        &self.input[start.absolute().into()..end.absolute().into()]
     }
 
     fn escape_code(&mut self) -> Result<Location, Error> {

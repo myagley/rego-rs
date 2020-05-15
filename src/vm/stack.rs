@@ -6,13 +6,6 @@ pub struct Stack<T> {
 }
 
 impl<T> Stack<T> {
-    pub fn new() -> Self {
-        Self {
-            values: Vec::new(),
-            capacity: None,
-        }
-    }
-
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             values: Vec::with_capacity(10),

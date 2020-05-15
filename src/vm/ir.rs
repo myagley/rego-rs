@@ -33,8 +33,6 @@ pub enum Ir {
     /// Jump to label
     Jump(String),
 
-    /// Pop value off of opstack, branch to calculated pc if defined
-    BranchDefined(isize),
     /// Pop value off of opstack, branch to calculated pc if undefined
     BranchUndefined(isize),
     /// Pop value off of opstack, branch to calculated pc if true
@@ -56,7 +54,6 @@ impl fmt::Display for Ir {
             Self::Call(pc) => write!(f, "call {}", pc),
             Self::Return => write!(f, "ret"),
             Self::Jump(pc) => write!(f, "jump {}", pc),
-            Self::BranchDefined(offset) => write!(f, "bdef {}", offset),
             Self::BranchUndefined(offset) => write!(f, "bundef {}", offset),
             Self::BranchTrue(offset) => write!(f, "btrue {}", offset),
         }

@@ -52,7 +52,6 @@ impl Codegen {
                     .get(&label)
                     .map(|pc| Instruction::Jump(*pc))
                     .ok_or_else(|| Error::UnknownReference(label)),
-                Ir::BranchDefined(offset) => Ok(Instruction::BranchDefined(offset)),
                 Ir::BranchUndefined(offset) => Ok(Instruction::BranchUndefined(offset)),
                 Ir::BranchTrue(offset) => Ok(Instruction::BranchTrue(offset)),
             })

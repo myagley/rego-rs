@@ -6,13 +6,30 @@ mod from;
 mod index;
 mod number;
 
-use crate::error::Error;
-
 pub use self::index::Index;
 pub use self::number::Number;
 
 pub type Map<K, V> = BTreeMap<K, V>;
 pub type Set<V> = BTreeSet<V>;
+
+#[derive(Clone, Debug)]
+pub struct InvalidType(&'static str, &'static str);
+
+impl fmt::Display for InvalidType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Invalid type when converting: expected {}, got {}",
+            self.0, self.1
+        )
+    }
+}
+
+impl std::error::Error for InvalidType {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
+}
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub enum Value {
@@ -108,10 +125,10 @@ impl Value {
         index.index_into_mut(self)
     }
 
-    pub fn try_into_set(self) -> Result<Set<Value>, Error> {
+    pub fn try_into_set(self) -> Result<Set<Value>, InvalidType> {
         match self {
             Value::Set(v) => Ok(v),
-            v => Err(Error::InvalidType("set", Type(&v).ty())),
+            v => Err(InvalidType("set", Type(&v).ty())),
         }
     }
 
@@ -133,10 +150,10 @@ impl Value {
         self.as_set().is_some()
     }
 
-    pub fn try_into_object(self) -> Result<Map<Value, Value>, Error> {
+    pub fn try_into_object(self) -> Result<Map<Value, Value>, InvalidType> {
         match self {
             Value::Object(map) => Ok(map),
-            v => Err(Error::InvalidType("object", Type(&v).ty())),
+            v => Err(InvalidType("object", Type(&v).ty())),
         }
     }
 
@@ -158,10 +175,10 @@ impl Value {
         self.as_object().is_some()
     }
 
-    pub fn try_into_array(self) -> Result<Vec<Value>, Error> {
+    pub fn try_into_array(self) -> Result<Vec<Value>, InvalidType> {
         match self {
             Value::Array(array) => Ok(array),
-            v => Err(Error::InvalidType("array", Type(&v).ty())),
+            v => Err(InvalidType("array", Type(&v).ty())),
         }
     }
 
@@ -183,10 +200,10 @@ impl Value {
         self.as_array().is_some()
     }
 
-    pub fn try_into_string(self) -> Result<String, Error> {
+    pub fn try_into_string(self) -> Result<String, InvalidType> {
         match self {
             Value::String(string) => Ok(string),
-            v => Err(Error::InvalidType("string", Type(&v).ty())),
+            v => Err(InvalidType("string", Type(&v).ty())),
         }
     }
 
@@ -208,10 +225,10 @@ impl Value {
         }
     }
 
-    pub fn try_into_i64(self) -> Result<i64, Error> {
+    pub fn try_into_i64(self) -> Result<i64, InvalidType> {
         match self {
             Value::Number(n) => n.try_into_i64(),
-            v => Err(Error::InvalidType("i64", Type(&v).ty())),
+            v => Err(InvalidType("i64", Type(&v).ty())),
         }
     }
 
@@ -229,10 +246,10 @@ impl Value {
         }
     }
 
-    pub fn try_into_u64(self) -> Result<u64, Error> {
+    pub fn try_into_u64(self) -> Result<u64, InvalidType> {
         match self {
             Value::Number(n) => n.try_into_u64(),
-            v => Err(Error::InvalidType("u64", Type(&v).ty())),
+            v => Err(InvalidType("u64", Type(&v).ty())),
         }
     }
 
@@ -250,10 +267,10 @@ impl Value {
         }
     }
 
-    pub fn try_into_f64(self) -> Result<f64, Error> {
+    pub fn try_into_f64(self) -> Result<f64, InvalidType> {
         match self {
             Value::Number(n) => n.try_into_f64(),
-            v => Err(Error::InvalidType("f64", Type(&v).ty())),
+            v => Err(InvalidType("f64", Type(&v).ty())),
         }
     }
 
@@ -271,10 +288,10 @@ impl Value {
         }
     }
 
-    pub fn try_into_bool(self) -> Result<bool, Error> {
+    pub fn try_into_bool(self) -> Result<bool, InvalidType> {
         match self {
             Value::Bool(b) => Ok(b),
-            v => Err(Error::InvalidType("bool", Type(&v).ty())),
+            v => Err(InvalidType("bool", Type(&v).ty())),
         }
     }
 
