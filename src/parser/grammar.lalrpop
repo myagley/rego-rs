@@ -1,11 +1,9 @@
-use std::borrow::Cow;
-
 use ordered_float::NotNan;
 
-use crate::Location;
-use crate::ast::*;
+use crate::parser::location::Location;
 use crate::parser::lexer::Error;
 use crate::parser::token::{StringLiteral, Token};
+use crate::parser::tree::*;
 use crate::value::{Number, Value};
 
 grammar<'input>(input: &'input str);
@@ -75,30 +73,54 @@ Comma<T>: Vec<T> = {
     }
 };
 
-pub Module: () = Package Import* Policy;
-
-Import: () = "import" Ref ("as" Var)? ";"+;
-
-Package: () = "package" Ref ";"+;
-
-Policy: () = Rule*;
-
-Rule: () = {
-    "default" Var "=" Term ";"+,
-    Var ( AssignOrEqual Term )? RuleBody* ";"+,
-    Var "[" Term "]" RuleBody* ";"+,
-    Var "[" Term "]" "=" Term RuleBody* ";"+,
-    Var "(" Comma<Term> ")" "=" Term RuleBody* ";"+,
+Dot<T>: Vec<T> = {
+    <v:(<T> ".")*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            let mut v = v;
+            v.push(e);
+            v
+        }
+    }
 };
 
-#[inline]
-AssignOrEqual: Opcode = {
-    ":=" => Opcode::Assign,
-    "=" => Opcode::Eq,
+pub Module: Module<'input> = Package Import* Rule* => Module::new(<>);
+
+Import: Import<'input> = "import" <Ref> <("as" <Var>)?> ";"+ => Import::new(<>);
+
+Package: Vec<&'input str> = "package" <Dot<"id">> ";"+;
+
+Rule: Rule<'input> = {
+    "default" <Var> "=" <Term> ";"+ => Rule::Default(DefaultRule::new(<>)),
+    <Var> <( ExprOp <Term> )?> <RuleBodyElse?> ";"+ => Rule::Complete(CompleteRule::new(<>)),
+    <Var> "[" <Term> "]" <RuleBody?> ";"+ => Rule::Set(SetRule::new(<>)),
+    <Var> "[" <Term> "]" "=" <Term> <RuleBody?> ";"+ => Rule::Object(ObjectRule::new(<>)),
+    <Var> "(" <Comma<Term>> ")" "=" <Term> <RuleBodyElse?> ";"+ => Rule::Function(FunctionRule::new(<>)),
 };
 
-RuleBody: () = {
-    ( "else" ( "=" Term)?)? "{" Query "}",
+RuleBody: RuleBody<'input> = {
+    "{" <Query> "}" => RuleBody::Clauses(vec![<>]),
+    "{" <h:Query> "}" <t:("{" <Query> "}")+> => {
+        let mut clauses = vec![h];
+        let mut tail = t;
+        clauses.append(&mut tail);
+        RuleBody::Clauses(clauses)
+    },
+};
+
+RuleBodyElse: RuleBody<'input> = {
+    "{" <Query> "}" => RuleBody::Clauses(vec![<>]),
+    "{" <h:Query> "}" <t:("{" <Query> "}")+> => {
+        let mut clauses = vec![h];
+        let mut tail = t;
+        clauses.append(&mut tail);
+        RuleBody::Clauses(clauses)
+    },
+    "{" <Query> "}" <(<ElseClause>)+> => RuleBody::WithElses(<>),
+};
+
+ElseClause: Else<'input> = {
+    "else" <("=" <Term>)?> "{" <Query> "}" => Else::new(<>),
 };
 
 pub Query: Query<'input> = {
@@ -115,7 +137,6 @@ Statement: Statement<'input>  = {
     <StatementTarget> <WithModifier*> => Statement::new(<>),
 }
 
-#[inline]
 StatementTarget: StatementTarget<'input> = {
     Expr => StatementTarget::Expr(<>),
     "not" <Expr> => StatementTarget::NotExpr(<>),
@@ -126,20 +147,21 @@ WithModifier: With<'input> = {
     "with" <Term> "as" <Term> => With::new(<>),
 };
 
-pub Expr: Term<'input> = {
-    <l:Term> <op:AssignOrEqual> <r:Tier0> => Term::BinOp(Box::new(l), op, Box::new(r)),
-    Tier0,
-};
-
 Tier<Op, NextTier>: Term<'input> = {
     <l:Tier<Op, NextTier>> <op:Op> <r:NextTier> => Term::BinOp(Box::new(l), op, Box::new(r)),
     NextTier,
 };
 
+Expr = Tier<ExprOp, Tier0>;
 Tier0 = Tier<Tier0Op, Tier1>;
 Tier1 = Tier<Tier1Op, Tier2>;
 Tier2 = Tier<Tier2Op, Tier3>;
 Tier3 = Tier<Tier3Op, Term>;
+
+ExprOp: Opcode = {
+    ":=" => Opcode::Assign,
+    "=" => Opcode::Eq,
+}
 
 Tier3Op: Opcode = {
     "*" => Opcode::Mul,
@@ -173,11 +195,11 @@ Ref: Ref<'input> = {
 RefTarget: RefTarget<'input> = {
     Var => RefTarget::Var(<>),
     Array => RefTarget::Collection(<>),
-    ArrayCompr => RefTarget::ArrayCompr,
+    ArrayCompr => RefTarget::ArrayCompr(<>),
     Object => RefTarget::Collection(<>),
-    ObjectCompr => RefTarget::ObjectCompr,
+    ObjectCompr => RefTarget::ObjectCompr(<>),
     Set => RefTarget::Collection(<>),
-    SetCompr => RefTarget::SetCompr,
+    SetCompr => RefTarget::SetCompr(<>),
     ExprCall => RefTarget::ExprCall(<>),
 };
 
@@ -195,7 +217,7 @@ RefArgBrack: RefArg<'input> = {
 #[inline]
 RefArgBrackParam: RefArg<'input> = {
     Scalar => RefArg::Scalar(<>),
-    Var => RefArg::Var(<>),
+    Var => RefArg::VarBrack(<>),
     Array => RefArg::Collection(<>),
     Object => RefArg::Collection(<>),
     Set => RefArg::Collection(<>),
@@ -204,7 +226,7 @@ RefArgBrackParam: RefArg<'input> = {
 
 #[inline]
 RefArgDot: RefArg<'input> = {
-    "." <Var> => RefArg::Scalar(Value::String(Cow::Borrowed(<>))),
+    "." <Var> => RefArg::VarDot(<>),
 };
 
 // There is some ambiguity in the grammar
@@ -220,11 +242,11 @@ Term: Term<'input> = {
     "(" <Tier0> ")",
 };
 
-ArrayCompr: () = "[" Term  "|" Query "]";
+ArrayCompr: ArrayCompr<'input> = "[" <Term>  "|" <Query> "]" => ArrayCompr::new(<>);
 
-SetCompr: () = "{" Term "|" Query "}";
+SetCompr: SetCompr<'input> = "{" <Term> "|" <Query> "}" => SetCompr::new(<>);
 
-ObjectCompr: () = "{" ObjectItem "|" Query "}";
+ObjectCompr: ObjectCompr<'input> = "{" <ObjectItem> "|" <Query> "}" => ObjectCompr::new(<>);
 
 Array: Collection<'input> = "["  <Comma<Term>> "]" => Collection::Array(<>);
 
@@ -255,7 +277,7 @@ ObjectKey: Term<'input> = {
 
 Var: &'input str = "id";
 
-Scalar: Value<'input> = {
+Scalar: Value = {
     Bool,
     Null,
     Number,
@@ -263,23 +285,23 @@ Scalar: Value<'input> = {
 };
 
 #[inline]
-Null: Value<'input> = {
+Null: Value = {
     "null" => Value::Null,
 };
 
 #[inline]
-Bool: Value<'input> = {
+Bool: Value = {
     "true" => Value::Bool(true),
     "false" => Value::Bool(false),
 };
 
 #[inline]
-String: Value<'input> = {
+String: Value = {
     "string-literal" => Value::String(<>.unescape()),
 };
 
 #[inline]
-Number: Value<'input> = {
+Number: Value = {
     "integer-literal" => Value::Number(Number::from(<>)),
     "float-literal" => Value::Number(Number::from(<>)),
 };

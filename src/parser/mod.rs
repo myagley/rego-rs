@@ -2,16 +2,23 @@ use lalrpop_util::lalrpop_mod;
 
 lalrpop_mod!(grammar, "/parser/grammar.rs");
 pub mod lexer;
+mod location;
 mod token;
+pub mod tree;
 
 use self::lexer::Error as LexerError;
-use crate::ast::Query;
-use crate::Location;
+use crate::parser::tree::{Module, Query};
 
 pub use lexer::Lexer;
+pub use location::Location;
 pub use token::Token;
 
 pub type ParseError<'input> = lalrpop_util::ParseError<Location, Token<'input>, LexerError>;
+
+pub fn parse_module<'input>(input: &'input str) -> Result<Module<'input>, ParseError<'input>> {
+    let lexer = Lexer::new(input);
+    grammar::ModuleParser::new().parse(input, lexer)
+}
 
 pub fn parse_query<'input>(input: &'input str) -> Result<Query<'input>, ParseError<'input>> {
     let lexer = Lexer::new(input);
@@ -21,43 +28,6 @@ pub fn parse_query<'input>(input: &'input str) -> Result<Query<'input>, ParseErr
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use crate::ast::*;
-    use crate::parser::lexer::Lexer;
-
-    #[test]
-    fn test_expr_parse() {
-        let cases = [
-            (" 123", Term::Scalar(123.into())),
-            (" 123.4", Term::Scalar(123.4.into())),
-            ("\"hello\"", Term::Scalar("hello".into())),
-            (
-                "x := (1 + 2) * 3 >= `sfs`",
-                Term::BinOp(
-                    Box::new(Term::Ref(Ref::new(Box::new(RefTarget::Var("x")), vec![]))),
-                    Opcode::Assign,
-                    Box::new(Term::BinOp(
-                        Box::new(Term::BinOp(
-                            Box::new(Term::BinOp(
-                                Box::new(Term::Scalar(1.into())),
-                                Opcode::Add,
-                                Box::new(Term::Scalar(2.into())),
-                            )),
-                            Opcode::Mul,
-                            Box::new(Term::Scalar(3.into())),
-                        )),
-                        Opcode::Gte,
-                        Box::new(Term::Scalar("sfs".into())),
-                    )),
-                ),
-            ),
-        ];
-        for (input, expected) in &cases {
-            let lexer = Lexer::new(input);
-            let result = grammar::ExprParser::new().parse(input, lexer).unwrap();
-            assert_eq!(*expected, result);
-        }
-    }
 
     #[test]
     fn test_query_parse() {
@@ -97,8 +67,7 @@ mod tests {
             "#,
         ];
         for input in &cases {
-            let lexer = Lexer::new(input);
-            if let Err(e) = grammar::QueryParser::new().parse(input, lexer) {
+            if let Err(e) = parse_query(input) {
                 panic!("input: {} {:?}", input, e);
             }
         }
@@ -133,8 +102,7 @@ public_servers[server] {
 }
         "####;
 
-        let lexer = Lexer::new(input);
-        if let Err(e) = grammar::ModuleParser::new().parse(input, lexer) {
+        if let Err(e) = parse_module(input) {
             panic!("{:?}", e);
         }
     }
