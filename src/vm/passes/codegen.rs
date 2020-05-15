@@ -147,11 +147,11 @@ impl Codegen {
 
                 for (i, el) in elses.iter_mut().enumerate() {
                     self.push_label(&format!("{}-{}", name, i + 1));
-                    el.query_mut().accept(self)?;
+                    el.query.accept(self)?;
                     self.push_ir(Ir::BranchTrue(3));
                     self.push_ir(Ir::LoadImmediate(Value::Undefined));
                     self.push_ir(Ir::Return);
-                    if let Some(value) = el.value_mut() {
+                    if let Some(value) = el.value.as_mut() {
                         value.accept(self)?;
                     } else {
                         clause.value.accept(self)?;
@@ -209,7 +209,7 @@ impl Visitor for Codegen {
     type Error = Error;
 
     fn visit_module(&mut self, module: &mut Module) -> Result<Self::Value, Self::Error> {
-        for rule in module.rules_mut() {
+        for rule in &mut module.rules {
             match &mut rule.body {
                 Body::Complete(clauses) => {
                     self.push_complete_rule(&rule.name, clauses.as_mut_slice())?

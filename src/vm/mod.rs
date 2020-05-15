@@ -204,7 +204,7 @@ impl CompiledQuery {
             module.accept(&mut input)?;
 
             // Rule resolution
-            let mut rules = passes::RuleResolver::new(module.package());
+            let mut rules = passes::RuleResolver::new(&mut module.package);
             module.accept(&mut rules)?;
 
             // Const Eval

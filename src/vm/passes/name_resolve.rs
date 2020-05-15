@@ -30,10 +30,10 @@ impl RuleResolver {
             ClauseBody::WithElses(query, elses) => {
                 query.accept(self)?;
                 for el in elses {
-                    if let Some(value) = el.value_mut() {
+                    if let Some(value) = el.value.as_mut() {
                         value.accept(self)?;
                     }
-                    el.query_mut().accept(self)?;
+                    el.query.accept(self)?;
                 }
             }
         }
@@ -53,12 +53,12 @@ impl Visitor for RuleResolver {
     type Error = Error;
 
     fn visit_module(&mut self, module: &mut Module) -> Result<Self::Value, Self::Error> {
-        for rule in module.rules_mut() {
+        for rule in &mut module.rules {
             self.local_rules.insert(rule.name.to_owned());
             rule.name = format!("{}.{}.{}", DATA_ROOT, self.package, &rule.name);
         }
 
-        for rule in module.rules_mut() {
+        for rule in &mut module.rules {
             if let Some(default) = rule.default.as_mut() {
                 default.accept(self)?;
             }
@@ -207,10 +207,10 @@ impl InputResolver {
             ClauseBody::WithElses(query, elses) => {
                 query.accept(self)?;
                 for el in elses {
-                    if let Some(value) = el.value_mut() {
+                    if let Some(value) = el.value.as_mut() {
                         value.accept(self)?;
                     }
-                    el.query_mut().accept(self)?;
+                    el.query.accept(self)?;
                 }
             }
         }
@@ -223,7 +223,7 @@ impl Visitor for InputResolver {
     type Error = Error;
 
     fn visit_module(&mut self, module: &mut Module) -> Result<Self::Value, Self::Error> {
-        for rule in module.rules_mut() {
+        for rule in &mut module.rules {
             if let Some(default) = rule.default.as_mut() {
                 default.accept(self)?;
             }
@@ -381,19 +381,22 @@ mod tests {
                 }]),
             },
         ];
-        let expected = Module::new(vec!["opa".to_string(), "examples".to_string()], rules);
+        let expected = Module {
+            package: vec!["opa".to_string(), "examples".to_string()],
+            rules,
+        };
 
         let mut module = Module::try_from(parse_module(input).unwrap()).unwrap();
-        let mut visitor = RuleResolver::new(module.package());
+        let mut visitor = RuleResolver::new(&mut module.package);
         module.accept(&mut visitor).unwrap();
 
         let expected = expected
-            .rules()
+            .rules
             .iter()
             .map(|r| r.name.to_owned())
             .collect::<HashSet<String>>();
         let result = module
-            .rules()
+            .rules
             .iter()
             .map(|r| r.name.to_owned())
             .collect::<HashSet<String>>();
@@ -436,15 +439,18 @@ mod tests {
                 }]),
             },
         ];
-        let expected = Module::new(vec!["opa".to_string(), "examples".to_string()], rules);
+        let expected = Module {
+            package: vec!["opa".to_string(), "examples".to_string()],
+            rules,
+        };
 
         let mut module = Module::try_from(parse_module(input).unwrap()).unwrap();
-        let mut visitor = RuleResolver::new(module.package());
+        let mut visitor = RuleResolver::new(&mut module.package);
         module.accept(&mut visitor).unwrap();
 
         let expected: HashSet<Rule, RandomState> =
-            HashSet::from_iter(expected.rules().iter().cloned());
-        let result = HashSet::from_iter(module.rules().iter().cloned());
+            HashSet::from_iter(expected.rules.iter().cloned());
+        let result = HashSet::from_iter(module.rules.iter().cloned());
         assert_eq!(expected, result);
 
         assert_eq!(
@@ -484,15 +490,18 @@ mod tests {
                 }]),
             },
         ];
-        let expected = Module::new(vec!["opa".to_string(), "examples".to_string()], rules);
+        let expected = Module {
+            package: vec!["opa".to_string(), "examples".to_string()],
+            rules,
+        };
 
         let mut module = Module::try_from(parse_module(input).unwrap()).unwrap();
-        let mut visitor = RuleResolver::new(module.package());
+        let mut visitor = RuleResolver::new(&mut module.package);
         module.accept(&mut visitor).unwrap();
 
         let expected: HashSet<Rule, RandomState> =
-            HashSet::from_iter(expected.rules().iter().cloned());
-        let result = HashSet::from_iter(module.rules().iter().cloned());
+            HashSet::from_iter(expected.rules.iter().cloned());
+        let result = HashSet::from_iter(module.rules.iter().cloned());
         assert_eq!(expected, result);
 
         assert_eq!(
@@ -544,15 +553,18 @@ mod tests {
                 }]),
             },
         ];
-        let expected = Module::new(vec!["opa".to_string(), "examples".to_string()], rules);
+        let expected = Module {
+            package: vec!["opa".to_string(), "examples".to_string()],
+            rules,
+        };
 
         let mut module = Module::try_from(parse_module(input).unwrap()).unwrap();
-        let mut visitor = RuleResolver::new(module.package());
+        let mut visitor = RuleResolver::new(&mut module.package);
         module.accept(&mut visitor).unwrap();
 
         let expected: HashSet<Rule, RandomState> =
-            HashSet::from_iter(expected.rules().iter().cloned());
-        let result = HashSet::from_iter(module.rules().iter().cloned());
+            HashSet::from_iter(expected.rules.iter().cloned());
+        let result = HashSet::from_iter(module.rules.iter().cloned());
         assert_eq!(expected, result);
 
         assert_eq!(

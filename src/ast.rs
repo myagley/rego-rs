@@ -53,27 +53,11 @@ pub trait Visitor {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Module {
-    package: Vec<String>,
-    rules: Vec<Rule>,
+    pub package: Vec<String>,
+    pub rules: Vec<Rule>,
 }
 
 impl Module {
-    pub(crate) fn new(package: Vec<String>, rules: Vec<Rule>) -> Self {
-        Self { package, rules }
-    }
-
-    pub fn package(&self) -> &[String] {
-        &self.package
-    }
-
-    pub fn rules(&self) -> &[Rule] {
-        &self.rules
-    }
-
-    pub fn rules_mut(&mut self) -> &mut [Rule] {
-        self.rules.as_mut_slice()
-    }
-
     pub fn accept<V>(&mut self, visitor: &mut V) -> Result<V::Value, V::Error>
     where
         V: Visitor,
@@ -198,22 +182,8 @@ pub enum ClauseBody {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Else {
-    value: Option<Expr>,
-    query: Expr,
-}
-
-impl Else {
-    pub fn new(value: Option<Expr>, query: Expr) -> Self {
-        Self { value, query }
-    }
-
-    pub fn value_mut(&mut self) -> Option<&mut Expr> {
-        self.value.as_mut()
-    }
-
-    pub fn query_mut(&mut self) -> &mut Expr {
-        &mut self.query
-    }
+    pub value: Option<Expr>,
+    pub query: Expr,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -530,7 +500,7 @@ impl TryFrom<tree::RuleBody<'_>> for Vec<ClauseBody> {
                         let (maybe_value, query) = e.into_parts();
                         let value = maybe_value.map(Expr::try_from).transpose()?;
                         let query = Expr::try_from(query)?;
-                        Ok(Else::new(value, query))
+                        Ok(Else { value, query })
                     })
                     .collect::<Result<Vec<Else>, Error>>()?;
                 Ok(vec![ClauseBody::WithElses(query, elses)])

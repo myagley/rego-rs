@@ -1,7 +1,7 @@
 use std::fmt;
 use std::ops::Range;
 
-pub mod ast;
+mod ast;
 mod error;
 pub mod parser;
 mod value;
