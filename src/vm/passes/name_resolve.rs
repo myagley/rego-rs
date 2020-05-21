@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::mem;
 
@@ -312,7 +313,7 @@ impl Visitor for InputResolver {
                     let mut items = vec![Expr::InputRoot];
                     for item in tail {
                         if let Expr::Var(v) = item {
-                            let new_var = Expr::Scalar(Value::String(v.clone()));
+                            let new_var = Expr::Scalar(Value::String(Cow::Owned(v.clone())));
                             items.push(new_var);
                         } else {
                             items.push(item.clone());

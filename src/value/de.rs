@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use serde::de::{
     self, Deserialize, EnumAccess, Expected, IntoDeserializer, MapAccess, SeqAccess, Unexpected,
     VariantAccess, Visitor,
@@ -21,7 +23,10 @@ macro_rules! deserialize_prim_number {
     };
 }
 
-fn visit_array<'de, V>(array: Vec<Value>, visitor: V) -> Result<V::Value, Error<'static>>
+fn visit_array<'a: 'de, 'de, V>(
+    array: Vec<Value<'a>>,
+    visitor: V,
+) -> Result<V::Value, Error<'static>>
 where
     V: Visitor<'de>,
 {
@@ -39,7 +44,7 @@ where
     }
 }
 
-fn visit_set<'de, V>(set: Set<Value>, visitor: V) -> Result<V::Value, Error<'static>>
+fn visit_set<'a: 'de, 'de, V>(set: Set<Value<'a>>, visitor: V) -> Result<V::Value, Error<'static>>
 where
     V: Visitor<'de>,
 {
@@ -57,7 +62,10 @@ where
     }
 }
 
-fn visit_object<'de, V>(object: Map<Value, Value>, visitor: V) -> Result<V::Value, Error<'static>>
+fn visit_object<'a: 'de, 'de, V>(
+    object: Map<Value<'a>, Value<'a>>,
+    visitor: V,
+) -> Result<V::Value, Error<'static>>
 where
     V: Visitor<'de>,
 {
@@ -75,7 +83,7 @@ where
     }
 }
 
-impl<'de> serde::Deserializer<'de> for Value {
+impl<'a: 'de, 'de> serde::Deserializer<'de> for Value<'a> {
     type Error = Error<'static>;
 
     #[inline]
@@ -88,7 +96,8 @@ impl<'de> serde::Deserializer<'de> for Value {
             Value::Null => visitor.visit_unit(),
             Value::Bool(v) => visitor.visit_bool(v),
             Value::Number(n) => n.deserialize_any(visitor),
-            Value::String(v) => visitor.visit_string(v),
+            Value::String(Cow::Owned(s)) => visitor.visit_string(s),
+            Value::String(Cow::Borrowed(s)) => visitor.visit_str(s.as_ref()),
             Value::Array(v) => visit_array(v, visitor),
             Value::Set(v) => visit_set(v, visitor),
             Value::Object(v) => visit_object(v, visitor),
@@ -208,7 +217,8 @@ impl<'de> serde::Deserializer<'de> for Value {
         V: Visitor<'de>,
     {
         match self {
-            Value::String(v) => visitor.visit_string(v),
+            Value::String(Cow::Owned(v)) => visitor.visit_string(v),
+            Value::String(Cow::Borrowed(v)) => visitor.visit_str(v),
             _ => Err(self.invalid_type(&visitor)),
         }
     }
@@ -225,7 +235,8 @@ impl<'de> serde::Deserializer<'de> for Value {
         V: Visitor<'de>,
     {
         match self {
-            Value::String(v) => visitor.visit_string(v),
+            Value::String(Cow::Owned(v)) => visitor.visit_string(v),
+            Value::String(Cow::Borrowed(v)) => visitor.visit_str(v),
             Value::Array(v) => visit_array(v, visitor),
             _ => Err(self.invalid_type(&visitor)),
         }
@@ -324,16 +335,16 @@ impl<'de> serde::Deserializer<'de> for Value {
     }
 }
 
-struct EnumDeserializer {
-    variant: String,
-    value: Option<Value>,
+struct EnumDeserializer<'de> {
+    variant: Cow<'de, str>,
+    value: Option<Value<'de>>,
 }
 
-impl<'de> EnumAccess<'de> for EnumDeserializer {
+impl<'de> EnumAccess<'de> for EnumDeserializer<'de> {
     type Error = Error<'static>;
-    type Variant = VariantDeserializer;
+    type Variant = VariantDeserializer<'de>;
 
-    fn variant_seed<V>(self, seed: V) -> Result<(V::Value, VariantDeserializer), Self::Error>
+    fn variant_seed<V>(self, seed: V) -> Result<(V::Value, VariantDeserializer<'de>), Self::Error>
     where
         V: de::DeserializeSeed<'de>,
     {
@@ -343,7 +354,7 @@ impl<'de> EnumAccess<'de> for EnumDeserializer {
     }
 }
 
-impl<'de> IntoDeserializer<'de, Error<'static>> for Value {
+impl<'a: 'de, 'de> IntoDeserializer<'de, Error<'static>> for Value<'a> {
     type Deserializer = Self;
 
     fn into_deserializer(self) -> Self::Deserializer {
@@ -351,11 +362,11 @@ impl<'de> IntoDeserializer<'de, Error<'static>> for Value {
     }
 }
 
-struct VariantDeserializer {
-    value: Option<Value>,
+struct VariantDeserializer<'de> {
+    value: Option<Value<'de>>,
 }
 
-impl<'de> VariantAccess<'de> for VariantDeserializer {
+impl<'de> VariantAccess<'de> for VariantDeserializer<'de> {
     type Error = Error<'static>;
 
     fn unit_variant(self) -> Result<(), Self::Error> {
@@ -421,19 +432,19 @@ impl<'de> VariantAccess<'de> for VariantDeserializer {
     }
 }
 
-struct SeqDeserializer {
-    iter: std::vec::IntoIter<Value>,
+struct SeqDeserializer<'de> {
+    iter: std::vec::IntoIter<Value<'de>>,
 }
 
-impl SeqDeserializer {
-    fn new(vec: Vec<Value>) -> Self {
+impl<'de> SeqDeserializer<'de> {
+    fn new(vec: Vec<Value<'de>>) -> Self {
         SeqDeserializer {
             iter: vec.into_iter(),
         }
     }
 }
 
-impl<'de> serde::Deserializer<'de> for SeqDeserializer {
+impl<'de> serde::Deserializer<'de> for SeqDeserializer<'de> {
     type Error = Error<'static>;
 
     #[inline]
@@ -465,7 +476,7 @@ impl<'de> serde::Deserializer<'de> for SeqDeserializer {
     }
 }
 
-impl<'de> SeqAccess<'de> for SeqDeserializer {
+impl<'de> SeqAccess<'de> for SeqDeserializer<'de> {
     type Error = Error<'static>;
 
     fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
@@ -486,19 +497,19 @@ impl<'de> SeqAccess<'de> for SeqDeserializer {
     }
 }
 
-struct SetDeserializer {
-    iter: std::collections::btree_set::IntoIter<Value>,
+struct SetDeserializer<'de> {
+    iter: std::collections::btree_set::IntoIter<Value<'de>>,
 }
 
-impl SetDeserializer {
-    fn new(vec: Set<Value>) -> Self {
+impl<'de> SetDeserializer<'de> {
+    fn new(vec: Set<Value<'de>>) -> Self {
         SetDeserializer {
             iter: vec.into_iter(),
         }
     }
 }
 
-impl<'de> serde::Deserializer<'de> for SetDeserializer {
+impl<'de> serde::Deserializer<'de> for SetDeserializer<'de> {
     type Error = Error<'static>;
 
     #[inline]
@@ -530,7 +541,7 @@ impl<'de> serde::Deserializer<'de> for SetDeserializer {
     }
 }
 
-impl<'de> SeqAccess<'de> for SetDeserializer {
+impl<'de> SeqAccess<'de> for SetDeserializer<'de> {
     type Error = Error<'static>;
 
     fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
@@ -551,13 +562,13 @@ impl<'de> SeqAccess<'de> for SetDeserializer {
     }
 }
 
-struct MapDeserializer {
-    iter: <Map<Value, Value> as IntoIterator>::IntoIter,
-    value: Option<Value>,
+struct MapDeserializer<'de> {
+    iter: <Map<Value<'de>, Value<'de>> as IntoIterator>::IntoIter,
+    value: Option<Value<'de>>,
 }
 
-impl MapDeserializer {
-    fn new(map: Map<Value, Value>) -> Self {
+impl<'de> MapDeserializer<'de> {
+    fn new(map: Map<Value<'de>, Value<'de>>) -> Self {
         MapDeserializer {
             iter: map.into_iter(),
             value: None,
@@ -565,7 +576,7 @@ impl MapDeserializer {
     }
 }
 
-impl<'de> MapAccess<'de> for MapDeserializer {
+impl<'de> MapAccess<'de> for MapDeserializer<'de> {
     type Error = Error<'static>;
 
     fn next_key_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
@@ -599,7 +610,7 @@ impl<'de> MapAccess<'de> for MapDeserializer {
     }
 }
 
-impl<'de> serde::Deserializer<'de> for MapDeserializer {
+impl<'de> serde::Deserializer<'de> for MapDeserializer<'de> {
     type Error = Error<'static>;
 
     #[inline]
@@ -617,7 +628,7 @@ impl<'de> serde::Deserializer<'de> for MapDeserializer {
     }
 }
 
-impl Value {
+impl<'de> Value<'de> {
     fn invalid_type<E>(&self, exp: &dyn Expected) -> E
     where
         E: serde::de::Error,

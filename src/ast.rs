@@ -208,7 +208,7 @@ pub enum Opcode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
-    Scalar(Value),
+    Scalar(Value<'static>),
     Collection(Collection),
     Comprehension(Comprehension),
 

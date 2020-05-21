@@ -2,6 +2,7 @@ mod ir;
 mod passes;
 mod stack;
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::{fmt, mem};
@@ -34,7 +35,7 @@ pub enum Instruction {
     /// Push globals' reference to opstack
     LoadGlobal,
     /// Push immediate value to opstack
-    LoadImmediate(Value),
+    LoadImmediate(Value<'static>),
     /// Push local variable value reference to opstack
     LoadLocal(String),
     /// Pop value from opstack and store reference in locals
@@ -141,7 +142,7 @@ impl fmt::Display for CollectType {
 #[derive(Debug, Clone, PartialEq)]
 struct Frame<'a> {
     pc: usize,
-    locals: HashMap<&'a str, &'a Value>,
+    locals: HashMap<&'a str, &'a Value<'a>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -231,7 +232,7 @@ impl CompiledQuery {
         Ok(query)
     }
 
-    pub fn eval(&self, input: Value) -> Result<Value, crate::Error<'static>> {
+    pub fn eval(&self, input: Value<'static>) -> Result<Value<'static>, crate::Error<'static>> {
         let mut instance = Instance {
             instructions: self.instructions.clone(),
             opstack: Stack::with_capacity(10),
@@ -255,15 +256,15 @@ impl fmt::Display for CompiledQuery {
 
 struct Instance<'m> {
     instructions: Arc<Vec<Instruction>>,
-    opstack: Stack<&'m Value>,
+    opstack: Stack<&'m Value<'m>>,
     callstack: Stack<Frame<'m>>,
-    heap: Arena<Value>,
-    locals: HashMap<&'m str, &'m Value>,
-    input: Value,
+    heap: Arena<Value<'m>>,
+    locals: HashMap<&'m str, &'m Value<'m>>,
+    input: Value<'m>,
 }
 
 impl<'a> Instance<'a> {
-    fn eval(&'a mut self) -> Result<Value, crate::Error<'static>> {
+    fn eval(&'a mut self) -> Result<Value<'static>, crate::Error<'static>> {
         use Instruction::*;
 
         let mut pc = 0;
@@ -413,7 +414,26 @@ impl<'a> Instance<'a> {
         let result = self.opstack.pop().map(|o| o.clone());
         debug_assert!(self.opstack.len() == 0);
         trace!("eval complete");
-        Ok(result?)
+        let value = result?;
+        Ok(to_static(&value))
+    }
+}
+
+fn to_static(value: &Value<'_>) -> Value<'static> {
+    match value {
+        Value::Undefined => Value::Undefined,
+        Value::Null => Value::Null,
+        Value::Bool(b) => Value::Bool(*b),
+        Value::Number(n) => Value::Number(*n),
+        Value::String(Cow::Owned(s)) => Value::String(Cow::Owned(s.clone())),
+        Value::String(Cow::Borrowed(s)) => Value::String(Cow::Owned(s.to_string())),
+        Value::Array(a) => Value::Array(a.iter().map(to_static).collect()),
+        Value::Object(m) => Value::Object(
+            m.iter()
+                .map(|(k, v)| (to_static(k), to_static(v)))
+                .collect(),
+        ),
+        Value::Set(s) => Value::Set(s.iter().map(to_static).collect()),
     }
 }
 
@@ -602,7 +622,7 @@ mod tests {
         let expr = Expr::try_from(term).unwrap();
         let query = CompiledQuery::from_query(expr).unwrap();
         let mut input = Map::new();
-        input.insert(Value::String("a".to_string()), Value::Number(3.into()));
+        input.insert("a".into(), Value::Number(3.into()));
         let result = query.eval(Value::Object(input)).unwrap();
         let expected = Value::Bool(true);
         assert_eq!(expected, result);
@@ -646,7 +666,7 @@ mod tests {
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
         let result = query.eval(Value::Null).unwrap();
-        let expected = Value::String("hello".to_string());
+        let expected = Value::from("hello");
         assert_eq!(expected, result);
     }
 
@@ -668,7 +688,7 @@ mod tests {
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
         let result = query.eval(Value::Null).unwrap();
-        let expected = Value::String("hello".to_string());
+        let expected = Value::from("hello");
         assert_eq!(expected, result);
     }
 
@@ -691,7 +711,7 @@ mod tests {
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
         let result = query.eval(Value::Null).unwrap();
-        let expected = Value::String("world".to_string());
+        let expected = Value::from("world");
         assert_eq!(expected, result);
     }
 
@@ -715,7 +735,7 @@ mod tests {
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
         let result = query.eval(Value::Null).unwrap();
-        let expected = Value::String("world".to_string());
+        let expected = Value::from("world");
         assert_eq!(expected, result);
     }
 
@@ -741,7 +761,7 @@ mod tests {
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
         let result = query.eval(Value::Null).unwrap();
-        let expected = Value::String("hello".to_string());
+        let expected = Value::from("hello");
         assert_eq!(expected, result);
     }
 
@@ -766,11 +786,11 @@ mod tests {
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
         let result = query.eval(Value::Number(3.into())).unwrap();
-        let expected = Value::String("hello".to_string());
+        let expected = Value::from("hello");
         assert_eq!(expected, result);
 
         let result = query.eval(Value::Number(2.into())).unwrap();
-        let expected = Value::String("world".to_string());
+        let expected = Value::from("world");
         assert_eq!(expected, result);
     }
 
@@ -796,11 +816,11 @@ mod tests {
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
         let result = query.eval(Value::Number(4.into())).unwrap();
-        let expected = Value::String("hello".to_string());
+        let expected = Value::from("hello");
         assert_eq!(expected, result);
 
         let result = query.eval(Value::Number(3.into())).unwrap();
-        let expected = Value::String("world".to_string());
+        let expected = Value::from("world");
         assert_eq!(expected, result);
     }
 
@@ -827,11 +847,11 @@ mod tests {
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
         let result = query.eval(Value::Number(4.into())).unwrap();
-        let expected = Value::String("hello".to_string());
+        let expected = Value::from("hello".to_string());
         assert_eq!(expected, result);
 
         let result = query.eval(Value::Number(3.into())).unwrap();
-        let expected = Value::String("world".to_string());
+        let expected = Value::from("world");
         assert_eq!(expected, result);
     }
 
@@ -862,19 +882,19 @@ mod tests {
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
         let result = query.eval(Value::Number(3.into())).unwrap();
-        let expected = Value::String("hello".to_string());
+        let expected = Value::from("hello".to_string());
         assert_eq!(expected, result);
 
         let result = query.eval(Value::Number(4.into())).unwrap();
-        let expected = Value::String("there".to_string());
+        let expected = Value::from("there".to_string());
         assert_eq!(expected, result);
 
         let result = query.eval(Value::Number(5.into())).unwrap();
-        let expected = Value::String("ok".to_string());
+        let expected = Value::from("ok".to_string());
         assert_eq!(expected, result);
 
         let result = query.eval(Value::Number(6.into())).unwrap();
-        let expected = Value::String("world".to_string());
+        let expected = Value::from("world".to_string());
         assert_eq!(expected, result);
     }
 }

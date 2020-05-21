@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use ordered_float::NotNan;
 
 use crate::parser::location::Location;
@@ -277,7 +279,7 @@ ObjectKey: Term<'input> = {
 
 Var: &'input str = "id";
 
-Scalar: Value = {
+Scalar: Value<'static> = {
     Bool,
     Null,
     Number,
@@ -285,23 +287,23 @@ Scalar: Value = {
 };
 
 #[inline]
-Null: Value = {
+Null: Value<'static> = {
     "null" => Value::Null,
 };
 
 #[inline]
-Bool: Value = {
+Bool: Value<'static> = {
     "true" => Value::Bool(true),
     "false" => Value::Bool(false),
 };
 
 #[inline]
-String: Value = {
-    "string-literal" => Value::String(<>.unescape()),
+String: Value<'static> = {
+    "string-literal" => Value::String(Cow::Owned(<>.unescape())),
 };
 
 #[inline]
-Number: Value = {
+Number: Value<'static> = {
     "integer-literal" => Value::Number(Number::from(<>)),
     "float-literal" => Value::Number(Number::from(<>)),
 };

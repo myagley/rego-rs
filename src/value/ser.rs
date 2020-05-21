@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fmt;
 
 use crate::value::{to_value, Map, Number, Value};
@@ -6,7 +7,7 @@ use crate::Error;
 pub struct Serializer;
 
 impl serde::Serializer for Serializer {
-    type Ok = Value;
+    type Ok = Value<'static>;
     type Error = Error<'static>;
 
     type SerializeSeq = SerializeVec;
@@ -75,12 +76,12 @@ impl serde::Serializer for Serializer {
     fn serialize_char(self, value: char) -> Result<Self::Ok, Self::Error> {
         let mut s = String::new();
         s.push(value);
-        Ok(Value::String(s))
+        Ok(Value::String(Cow::Owned(s)))
     }
 
     #[inline]
     fn serialize_str(self, value: &str) -> Result<Self::Ok, Self::Error> {
-        Ok(Value::String(value.to_owned()))
+        Ok(Value::String(Cow::Owned(value.to_owned())))
     }
 
     fn serialize_bytes(self, value: &[u8]) -> Result<Self::Ok, Self::Error> {
@@ -131,7 +132,10 @@ impl serde::Serializer for Serializer {
         T: ?Sized + serde::Serialize,
     {
         let mut values = Map::new();
-        values.insert(Value::String(String::from(variant)), to_value(&value)?);
+        values.insert(
+            Value::String(Cow::Owned(String::from(variant))),
+            to_value(&value)?,
+        );
         Ok(Value::Object(values))
     }
 
@@ -211,31 +215,31 @@ impl serde::Serializer for Serializer {
     where
         T: fmt::Display,
     {
-        Ok(Value::String(value.to_string()))
+        Ok(Value::String(Cow::Owned(value.to_string())))
     }
 }
 
 pub struct SerializeVec {
-    vec: Vec<Value>,
+    vec: Vec<Value<'static>>,
 }
 
 pub struct SerializeTupleVariant {
     name: String,
-    vec: Vec<Value>,
+    vec: Vec<Value<'static>>,
 }
 
 pub struct SerializeMap {
-    map: Map<Value, Value>,
-    next_key: Option<Value>,
+    map: Map<Value<'static>, Value<'static>>,
+    next_key: Option<Value<'static>>,
 }
 
 pub struct SerializeStructVariant {
     name: String,
-    map: Map<Value, Value>,
+    map: Map<Value<'static>, Value<'static>>,
 }
 
 impl serde::ser::SerializeSeq for SerializeVec {
-    type Ok = Value;
+    type Ok = Value<'static>;
     type Error = Error<'static>;
 
     fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
@@ -252,7 +256,7 @@ impl serde::ser::SerializeSeq for SerializeVec {
 }
 
 impl serde::ser::SerializeTuple for SerializeVec {
-    type Ok = Value;
+    type Ok = Value<'static>;
     type Error = Error<'static>;
 
     fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
@@ -268,7 +272,7 @@ impl serde::ser::SerializeTuple for SerializeVec {
 }
 
 impl serde::ser::SerializeTupleStruct for SerializeVec {
-    type Ok = Value;
+    type Ok = Value<'static>;
     type Error = Error<'static>;
 
     fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
@@ -284,7 +288,7 @@ impl serde::ser::SerializeTupleStruct for SerializeVec {
 }
 
 impl serde::ser::SerializeTupleVariant for SerializeTupleVariant {
-    type Ok = Value;
+    type Ok = Value<'static>;
     type Error = Error<'static>;
 
     fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
@@ -298,14 +302,14 @@ impl serde::ser::SerializeTupleVariant for SerializeTupleVariant {
     fn end(self) -> Result<Self::Ok, Self::Error> {
         let mut object = Map::new();
 
-        object.insert(Value::String(self.name), Value::Array(self.vec));
+        object.insert(Value::String(Cow::Owned(self.name)), Value::Array(self.vec));
 
         Ok(Value::Object(object))
     }
 }
 
 impl serde::ser::SerializeMap for SerializeMap {
-    type Ok = Value;
+    type Ok = Value<'static>;
     type Error = Error<'static>;
 
     fn serialize_key<T>(&mut self, key: &T) -> Result<(), Self::Error>
@@ -334,7 +338,7 @@ impl serde::ser::SerializeMap for SerializeMap {
 }
 
 impl serde::ser::SerializeStruct for SerializeMap {
-    type Ok = Value;
+    type Ok = Value<'static>;
     type Error = Error<'static>;
 
     fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
@@ -344,28 +348,33 @@ impl serde::ser::SerializeStruct for SerializeMap {
         serde::ser::SerializeMap::serialize_entry(self, key, value)
     }
 
-    fn end(self) -> Result<Value, Self::Error> {
+    fn end(self) -> Result<Value<'static>, Self::Error> {
         serde::ser::SerializeMap::end(self)
     }
 }
 
 impl serde::ser::SerializeStructVariant for SerializeStructVariant {
-    type Ok = Value;
+    type Ok = Value<'static>;
     type Error = Error<'static>;
 
     fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
     where
         T: ?Sized + serde::Serialize,
     {
-        self.map
-            .insert(Value::String(String::from(key)), to_value(&value)?);
+        self.map.insert(
+            Value::String(Cow::Owned(String::from(key))),
+            to_value(&value)?,
+        );
         Ok(())
     }
 
-    fn end(self) -> Result<Value, Self::Error> {
+    fn end(self) -> Result<Value<'static>, Self::Error> {
         let mut object = Map::new();
 
-        object.insert(Value::String(self.name), Value::Object(self.map));
+        object.insert(
+            Value::String(Cow::Owned(self.name)),
+            Value::Object(self.map),
+        );
 
         Ok(Value::Object(object))
     }
