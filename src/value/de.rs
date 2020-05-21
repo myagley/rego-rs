@@ -101,6 +101,7 @@ impl<'a: 'de, 'de> serde::Deserializer<'de> for Value<'a> {
             Value::Array(v) => visit_array(v, visitor),
             Value::Set(v) => visit_set(v, visitor),
             Value::Object(v) => visit_object(v, visitor),
+            _ => visitor.visit_unit(),
         }
     }
 
@@ -646,6 +647,7 @@ impl<'de> Value<'de> {
             Value::Array(_) => Unexpected::Seq,
             Value::Set(_) => Unexpected::Seq,
             Value::Object(_) => Unexpected::Map,
+            Value::Ref(_) => Unexpected::Other("ref"),
         }
     }
 }

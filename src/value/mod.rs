@@ -1,6 +1,8 @@
 use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::ops::{Add, Div, Mul, Sub};
 
 mod de;
@@ -32,7 +34,19 @@ impl std::error::Error for InvalidType {
     }
 }
 
-#[derive(Clone, Eq, Ord, PartialEq, PartialOrd, Hash)]
+pub trait Index {
+    fn index(&self, v: &Value<'_>) -> Option<Value<'_>>;
+}
+
+pub trait ToValue {
+    fn to_value(&self) -> Value<'_>;
+}
+
+pub trait ValueRef: Index + ToValue + fmt::Debug {}
+
+impl<T> ValueRef for T where T: Index + ToValue + fmt::Debug {}
+
+#[derive(Clone)]
 pub enum Value<'v> {
     Undefined,
     Null,
@@ -42,6 +56,64 @@ pub enum Value<'v> {
     Array(Vec<Value<'v>>),
     Object(Map<Value<'v>, Value<'v>>),
     Set(Set<Value<'v>>),
+    Ref(&'v dyn ValueRef),
+}
+
+impl PartialEq for Value<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Undefined, Value::Undefined) => true,
+            (Value::Null, Value::Null) => true,
+            (Value::Bool(l), Value::Bool(r)) => l == r,
+            (Value::Number(l), Value::Number(r)) => l == r,
+            (Value::String(l), Value::String(r)) => l == r,
+            (Value::Array(l), Value::Array(r)) => l == r,
+            (Value::Object(l), Value::Object(r)) => l == r,
+            (Value::Ref(l), Value::Ref(r)) => l.to_value().eq(&r.to_value()),
+            (Value::Ref(l), r) => l.to_value().eq(&r),
+            (l, Value::Ref(r)) => l.eq(&r.to_value()),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Value<'_> {}
+
+impl Ord for Value<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Value::Undefined, Value::Undefined) => Ordering::Equal,
+            (Value::Null, Value::Null) => Ordering::Equal,
+            (Value::Bool(l), Value::Bool(r)) => l.cmp(r),
+            (Value::Number(l), Value::Number(r)) => l.cmp(r),
+            (Value::String(l), Value::String(r)) => l.cmp(r),
+            (Value::Array(l), Value::Array(r)) => l.cmp(r),
+            (Value::Object(l), Value::Object(r)) => l.cmp(r),
+            (Value::Ref(l), Value::Ref(r)) => l.to_value().cmp(&r.to_value()),
+            (Value::Ref(l), r) => l.to_value().cmp(&r),
+            (l, Value::Ref(r)) => l.cmp(&r.to_value()),
+            (Value::Undefined, _) => Ordering::Less,
+            (_, Value::Undefined) => Ordering::Greater,
+            (Value::Null, _) => Ordering::Less,
+            (_, Value::Null) => Ordering::Greater,
+            (Value::Number(_), _) => Ordering::Less,
+            (_, Value::Number(_)) => Ordering::Greater,
+            (Value::String(_), _) => Ordering::Less,
+            (_, Value::String(_)) => Ordering::Greater,
+            (Value::Array(_), _) => Ordering::Less,
+            (_, Value::Array(_)) => Ordering::Greater,
+            (Value::Object(_), _) => Ordering::Less,
+            (_, Value::Object(_)) => Ordering::Greater,
+            (Value::Set(_), _) => Ordering::Less,
+            (_, Value::Set(_)) => Ordering::Greater,
+        }
+    }
+}
+
+impl PartialOrd for Value<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl fmt::Debug for Value<'_> {
@@ -55,6 +127,23 @@ impl fmt::Debug for Value<'_> {
             Value::Array(ref v) => formatter.debug_tuple("Array").field(v).finish(),
             Value::Object(ref v) => formatter.debug_tuple("Object").field(v).finish(),
             Value::Set(ref v) => formatter.debug_tuple("Set").field(v).finish(),
+            Value::Ref(ref v) => formatter.debug_tuple("Ref").field(v).finish(),
+        }
+    }
+}
+
+impl Hash for Value<'static> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Value::Undefined => ().hash(state),
+            Value::Null => ().hash(state),
+            Value::Bool(v) => v.hash(state),
+            Value::Number(ref v) => v.hash(state),
+            Value::String(ref v) => v.hash(state),
+            Value::Array(ref v) => v.hash(state),
+            Value::Object(ref v) => v.hash(state),
+            Value::Set(ref v) => v.hash(state),
+            Value::Ref(ref _v) => ().hash(state),
         }
     }
 }
@@ -107,6 +196,7 @@ impl fmt::Display for Value<'_> {
                 }
                 write!(f, "}}")
             }
+            Value::Ref(ref v) => write!(f, "{:?}", v),
         }
     }
 }
@@ -118,10 +208,11 @@ impl Default for Value<'_> {
 }
 
 impl<'v> Value<'v> {
-    pub fn get(&self, index: &Value<'v>) -> Option<&Value<'v>> {
+    pub fn get(&self, index: &Value<'v>) -> Option<Value<'_>> {
         match self {
-            Value::Array(ref vec) => index.as_u64().and_then(|u| vec.get(u as usize)),
-            Value::Object(ref map) => map.get(index),
+            Value::Array(ref vec) => vec.index(index),
+            Value::Object(ref map) => map.index(index),
+            Value::Ref(ref r) => r.index(index),
             _ => None,
         }
     }
@@ -327,6 +418,102 @@ impl<'v> Value<'v> {
     }
 }
 
+impl ToValue for Value<'_> {
+    fn to_value(&self) -> Value<'_> {
+        match self {
+            Value::Undefined => Value::Undefined,
+            Value::Null => Value::Null,
+            Value::Bool(b) => Value::Bool(*b),
+            Value::Number(n) => Value::Number(*n),
+            Value::String(s) => Value::String(Cow::Borrowed(s.as_ref())),
+            // todo Cow the array and map?
+            Value::Object(m) => Value::Object(m.clone()),
+            Value::Array(a) => Value::Array(a.clone()),
+            Value::Set(s) => Value::Set(s.clone()),
+            Value::Ref(r) => r.to_value(),
+        }
+    }
+}
+
+impl Index for Value<'_> {
+    fn index(&self, field: &Value<'_>) -> Option<Value<'_>> {
+        match self {
+            Value::Ref(r) => r.index(field),
+            Value::Object(m) => m.index(field),
+            Value::Array(a) => a.index(field),
+            _ => None,
+        }
+    }
+}
+
+impl<'v, T> Index for Vec<T>
+where
+    T: ToValue + std::fmt::Debug,
+{
+    fn index(&self, field: &Value<'_>) -> Option<Value<'_>> {
+        if let Some(n) = field.as_u64() {
+            self.get(n as usize).map(ToValue::to_value)
+        } else {
+            None
+        }
+    }
+}
+
+impl<'v, T> ToValue for Vec<T>
+where
+    T: ToValue + std::fmt::Debug,
+{
+    fn to_value(&self) -> Value<'_> {
+        let array = self
+            .iter()
+            .map(|v| v.to_value())
+            .collect::<Vec<Value<'_>>>();
+        Value::Array(array)
+    }
+}
+
+impl<'v, T> Index for Map<String, T>
+where
+    T: ToValue + std::fmt::Debug,
+{
+    fn index(&self, field: &Value<'_>) -> Option<Value<'_>> {
+        if let Value::String(s) = field {
+            self.get(s.as_ref()).map(ToValue::to_value)
+        } else {
+            None
+        }
+    }
+}
+
+impl<'v, T> ToValue for Map<String, T>
+where
+    T: ToValue + std::fmt::Debug,
+{
+    fn to_value(&self) -> Value<'_> {
+        let map = self
+            .iter()
+            .map(|(k, v)| (Value::String(Cow::Borrowed(k)), v.to_value()))
+            .collect::<Map<Value<'_>, Value<'_>>>();
+        Value::Object(map)
+    }
+}
+
+impl Index for Map<Value<'_>, Value<'_>> {
+    fn index(&self, field: &Value<'_>) -> Option<Value<'_>> {
+        if let Some(value) = self.get(field) {
+            Some(value.clone())
+        } else {
+            None
+        }
+    }
+}
+
+impl ToValue for Map<Value<'_>, Value<'_>> {
+    fn to_value(&self) -> Value<'_> {
+        Value::Object(self.clone())
+    }
+}
+
 struct Type<'a>(&'a Value<'a>);
 
 impl<'a> Type<'a> {
@@ -340,6 +527,7 @@ impl<'a> Type<'a> {
             Value::Array(_) => "array",
             Value::Object(_) => "object",
             Value::Set(_) => "set",
+            Value::Ref(_) => "ref",
         }
     }
 }
@@ -355,6 +543,7 @@ impl<'a> fmt::Display for Type<'a> {
             Value::Array(_) => formatter.write_str("array"),
             Value::Object(_) => formatter.write_str("object"),
             Value::Set(_) => formatter.write_str("set"),
+            Value::Ref(_) => formatter.write_str("ref"),
         }
     }
 }
