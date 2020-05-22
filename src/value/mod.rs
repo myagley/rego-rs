@@ -9,8 +9,10 @@ mod de;
 mod from;
 mod number;
 mod ser;
+mod valueref;
 
 pub use self::number::Number;
+pub use self::valueref::{Index, ToValue, ValueRef};
 
 pub type Map<K, V> = BTreeMap<K, V>;
 pub type Set<V> = BTreeSet<V>;
@@ -33,18 +35,6 @@ impl std::error::Error for InvalidType {
         None
     }
 }
-
-pub trait Index {
-    fn index(&self, v: &Value<'_>) -> Option<Value<'_>>;
-}
-
-pub trait ToValue {
-    fn to_value(&self) -> Value<'_>;
-}
-
-pub trait ValueRef: Index + ToValue + fmt::Debug {}
-
-impl<T> ValueRef for T where T: Index + ToValue + fmt::Debug {}
 
 #[derive(Clone)]
 pub enum Value<'v> {
@@ -415,102 +405,6 @@ impl<'v> Value<'v> {
 
     pub fn is_undefined(&self) -> bool {
         matches!(*self, Value::Undefined)
-    }
-}
-
-impl ToValue for Value<'_> {
-    fn to_value(&self) -> Value<'_> {
-        match self {
-            Value::Undefined => Value::Undefined,
-            Value::Null => Value::Null,
-            Value::Bool(b) => Value::Bool(*b),
-            Value::Number(n) => Value::Number(*n),
-            Value::String(s) => Value::String(Cow::Borrowed(s.as_ref())),
-            // todo Cow the array and map?
-            Value::Object(m) => Value::Object(m.clone()),
-            Value::Array(a) => Value::Array(a.clone()),
-            Value::Set(s) => Value::Set(s.clone()),
-            Value::Ref(r) => r.to_value(),
-        }
-    }
-}
-
-impl Index for Value<'_> {
-    fn index(&self, field: &Value<'_>) -> Option<Value<'_>> {
-        match self {
-            Value::Ref(r) => r.index(field),
-            Value::Object(m) => m.index(field),
-            Value::Array(a) => a.index(field),
-            _ => None,
-        }
-    }
-}
-
-impl<'v, T> Index for Vec<T>
-where
-    T: ToValue + std::fmt::Debug,
-{
-    fn index(&self, field: &Value<'_>) -> Option<Value<'_>> {
-        if let Some(n) = field.as_u64() {
-            self.get(n as usize).map(ToValue::to_value)
-        } else {
-            None
-        }
-    }
-}
-
-impl<'v, T> ToValue for Vec<T>
-where
-    T: ToValue + std::fmt::Debug,
-{
-    fn to_value(&self) -> Value<'_> {
-        let array = self
-            .iter()
-            .map(|v| v.to_value())
-            .collect::<Vec<Value<'_>>>();
-        Value::Array(array)
-    }
-}
-
-impl<'v, T> Index for Map<String, T>
-where
-    T: ToValue + std::fmt::Debug,
-{
-    fn index(&self, field: &Value<'_>) -> Option<Value<'_>> {
-        if let Value::String(s) = field {
-            self.get(s.as_ref()).map(ToValue::to_value)
-        } else {
-            None
-        }
-    }
-}
-
-impl<'v, T> ToValue for Map<String, T>
-where
-    T: ToValue + std::fmt::Debug,
-{
-    fn to_value(&self) -> Value<'_> {
-        let map = self
-            .iter()
-            .map(|(k, v)| (Value::String(Cow::Borrowed(k)), v.to_value()))
-            .collect::<Map<Value<'_>, Value<'_>>>();
-        Value::Object(map)
-    }
-}
-
-impl Index for Map<Value<'_>, Value<'_>> {
-    fn index(&self, field: &Value<'_>) -> Option<Value<'_>> {
-        if let Some(value) = self.get(field) {
-            Some(value.clone())
-        } else {
-            None
-        }
-    }
-}
-
-impl ToValue for Map<Value<'_>, Value<'_>> {
-    fn to_value(&self) -> Value<'_> {
-        Value::Object(self.clone())
     }
 }
 
