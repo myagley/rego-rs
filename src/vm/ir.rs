@@ -8,7 +8,7 @@ pub enum Ir {
     /// Push globals' reference to opstack
     LoadGlobal,
     /// Push immediate value to opstack
-    LoadImmediate(Value),
+    LoadImmediate(Value<'static>),
     /// Push local variable value reference to opstack
     LoadLocal(String),
     /// Pop value from opstack and store reference in locals

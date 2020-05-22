@@ -2,6 +2,7 @@ mod ir;
 mod passes;
 mod stack;
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::{fmt, mem};
@@ -10,14 +11,14 @@ use tracing::trace;
 use typed_arena::Arena;
 
 use crate::ast::*;
-use crate::value::{Map, Set, Value};
+use crate::value::{Map, Set, Value, ValueRef};
 
 pub use ir::Ir;
 pub use stack::Stack;
 
-static UNDEFINED: Value = Value::Undefined;
-static TRUE: Value = Value::Bool(true);
-static FALSE: Value = Value::Bool(false);
+const UNDEFINED: Value<'static> = Value::Undefined;
+const TRUE: Value<'static> = Value::Bool(true);
+const FALSE: Value<'static> = Value::Bool(false);
 
 macro_rules! static_bool {
     ( $expr:expr ) => {
@@ -34,7 +35,7 @@ pub enum Instruction {
     /// Push globals' reference to opstack
     LoadGlobal,
     /// Push immediate value to opstack
-    LoadImmediate(Value),
+    LoadImmediate(Value<'static>),
     /// Push local variable value reference to opstack
     LoadLocal(String),
     /// Pop value from opstack and store reference in locals
@@ -141,7 +142,7 @@ impl fmt::Display for CollectType {
 #[derive(Debug, Clone, PartialEq)]
 struct Frame<'a> {
     pc: usize,
-    locals: HashMap<&'a str, &'a Value>,
+    locals: HashMap<&'a str, &'a Value<'a>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -231,14 +232,14 @@ impl CompiledQuery {
         Ok(query)
     }
 
-    pub fn eval(&self, input: Value) -> Result<Value, crate::Error<'static>> {
+    pub fn eval<I: ValueRef>(&self, input: &I) -> Result<Value<'static>, crate::Error<'static>> {
         let mut instance = Instance {
             instructions: self.instructions.clone(),
             opstack: Stack::with_capacity(10),
             callstack: Stack::with_capacity(10),
             heap: Arena::new(),
             locals: HashMap::new(),
-            input,
+            input: Value::Ref(input),
         };
         instance.eval()
     }
@@ -255,15 +256,15 @@ impl fmt::Display for CompiledQuery {
 
 struct Instance<'m> {
     instructions: Arc<Vec<Instruction>>,
-    opstack: Stack<&'m Value>,
+    opstack: Stack<&'m Value<'m>>,
     callstack: Stack<Frame<'m>>,
-    heap: Arena<Value>,
-    locals: HashMap<&'m str, &'m Value>,
-    input: Value,
+    heap: Arena<Value<'m>>,
+    locals: HashMap<&'m str, &'m Value<'m>>,
+    input: Value<'m>,
 }
 
 impl<'a> Instance<'a> {
-    fn eval(&'a mut self) -> Result<Value, crate::Error<'static>> {
+    fn eval(&'a mut self) -> Result<Value<'static>, crate::Error<'static>> {
         use Instruction::*;
 
         let mut pc = 0;
@@ -325,7 +326,8 @@ impl<'a> Instance<'a> {
                 Index => {
                     let arg = self.opstack.pop()?;
                     let target = self.opstack.pop()?;
-                    let result = target.get(arg).unwrap_or_else(|| &UNDEFINED);
+                    let result = target.get(arg).unwrap_or_else(|| Value::Undefined);
+                    let result = self.heap.alloc(result);
                     self.opstack.push(result)?;
                 }
                 Dup => {
@@ -347,6 +349,8 @@ impl<'a> Instance<'a> {
                         self::BinOp::And => {
                             if left.is_boolean() && right.is_boolean() {
                                 static_bool!(left.is_true() && right.is_true())
+                            } else if !left.is_undefined() && !right.is_undefined() {
+                                &TRUE
                             } else {
                                 &UNDEFINED
                             }
@@ -412,8 +416,33 @@ impl<'a> Instance<'a> {
         }
         let result = self.opstack.pop().map(|o| o.clone());
         debug_assert!(self.opstack.len() == 0);
-        trace!("eval complete");
-        Ok(result?)
+        trace!(
+            msg = "eval complete",
+            num_allocs = self.heap.len(),
+            opstack_len = self.opstack.len(),
+            callstack_len = self.callstack.len()
+        );
+        let value = result?;
+        Ok(to_static(&value))
+    }
+}
+
+fn to_static(value: &Value<'_>) -> Value<'static> {
+    match value {
+        Value::Undefined => Value::Undefined,
+        Value::Null => Value::Null,
+        Value::Bool(b) => Value::Bool(*b),
+        Value::Number(n) => Value::Number(*n),
+        Value::String(Cow::Owned(s)) => Value::String(Cow::Owned(s.clone())),
+        Value::String(Cow::Borrowed(s)) => Value::String(Cow::Owned(s.to_string())),
+        Value::Array(a) => Value::Array(a.iter().map(to_static).collect()),
+        Value::Object(m) => Value::Object(
+            m.iter()
+                .map(|(k, v)| (to_static(k), to_static(v)))
+                .collect(),
+        ),
+        Value::Set(s) => Value::Set(s.iter().map(to_static).collect()),
+        Value::Ref(r) => to_static(&r.to_value()),
     }
 }
 
@@ -425,6 +454,7 @@ mod tests {
     use std::sync::Once;
 
     use crate::parser::{parse_module, parse_query};
+    use crate::value::{Index, ToValue};
 
     static INIT: Once = Once::new();
 
@@ -450,7 +480,7 @@ mod tests {
         let query = CompiledQuery {
             instructions: Arc::new(instructions),
         };
-        let result = query.eval(Value::Undefined);
+        let result = query.eval(&Value::Undefined);
         println!("result: {:?}", result);
     }
 
@@ -469,7 +499,7 @@ mod tests {
         let query = CompiledQuery {
             instructions: Arc::new(instructions),
         };
-        let result = query.eval(Value::Undefined).unwrap();
+        let result = query.eval(&Value::Undefined).unwrap();
         assert_eq!(Value::Number(7.into()), result);
         println!("result: {:?}", result);
     }
@@ -494,7 +524,7 @@ mod tests {
         let query = CompiledQuery {
             instructions: Arc::new(instructions),
         };
-        let result = query.eval(Value::Undefined).unwrap();
+        let result = query.eval(&Value::Undefined).unwrap();
         assert_eq!(Value::Number(3.into()), result);
         println!("result: {:?}", result);
     }
@@ -506,7 +536,7 @@ mod tests {
         let term = parse_query(&input).unwrap();
         let expr = Expr::try_from(term).unwrap();
         let query = CompiledQuery::from_query(expr).unwrap();
-        let result = query.eval(Value::Undefined);
+        let result = query.eval(&Value::Undefined);
         println!("result: {:?}", result);
     }
 
@@ -518,7 +548,7 @@ mod tests {
         let expr = Expr::try_from(term).unwrap();
         let query = CompiledQuery::from_query(expr).unwrap();
         let result = query
-            .eval(Value::Undefined)
+            .eval(&Value::Undefined)
             .unwrap()
             .try_into_array()
             .unwrap();
@@ -538,7 +568,7 @@ mod tests {
         let expr = Expr::try_from(term).unwrap();
         let query = CompiledQuery::from_query(expr).unwrap();
         let result = query
-            .eval(Value::Undefined)
+            .eval(&Value::Undefined)
             .unwrap()
             .try_into_set()
             .unwrap();
@@ -560,7 +590,7 @@ mod tests {
         let expr = Expr::try_from(term).unwrap();
         let query = CompiledQuery::from_query(expr).unwrap();
         let result = query
-            .eval(Value::Undefined)
+            .eval(&Value::Undefined)
             .unwrap()
             .try_into_object()
             .unwrap();
@@ -577,7 +607,7 @@ mod tests {
         let term = parse_query(&input).unwrap();
         let expr = Expr::try_from(term).unwrap();
         let query = CompiledQuery::from_query(expr).unwrap();
-        let result = query.eval(Value::Undefined).unwrap();
+        let result = query.eval(&Value::Undefined).unwrap();
         let expected = Value::Number(2.into());
         assert_eq!(expected, result);
     }
@@ -589,21 +619,54 @@ mod tests {
         let term = parse_query(&input).unwrap();
         let expr = Expr::try_from(term).unwrap();
         let query = CompiledQuery::from_query(expr).unwrap();
-        let result = query.eval(Value::Undefined).unwrap();
+        let result = query.eval(&Value::Undefined).unwrap();
         let expected = Value::Number(3.into());
         assert_eq!(expected, result);
+    }
+
+    #[derive(Debug)]
+    struct Person {
+        name: String,
+        age: u64,
+    }
+
+    impl Index for Person {
+        fn index(&self, field: &Value<'_>) -> Option<Value<'_>> {
+            if let Value::String(s) = field {
+                match s.as_ref() {
+                    "name" => Some(Value::String(Cow::Borrowed(self.name.as_str()))),
+                    "age" => Some(Value::from(self.age)),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        }
+    }
+
+    impl ToValue for Person {
+        fn to_value(&self) -> Value<'_> {
+            let mut map = Map::new();
+            map.insert(
+                Value::String(Cow::Borrowed(self.name.as_str())),
+                self.age.into(),
+            );
+            Value::Object(map)
+        }
     }
 
     #[test]
     fn test_data_input() {
         init();
-        let query = "input.a == 3";
+        let query = "input.age == 38";
         let term = parse_query(&query).unwrap();
         let expr = Expr::try_from(term).unwrap();
         let query = CompiledQuery::from_query(expr).unwrap();
-        let mut input = Map::new();
-        input.insert(Value::String("a".to_string()), Value::Number(3.into()));
-        let result = query.eval(Value::Object(input)).unwrap();
+        let person = Person {
+            name: "mike".to_string(),
+            age: 38,
+        };
+        let result = query.eval(&person).unwrap();
         let expected = Value::Bool(true);
         assert_eq!(expected, result);
     }
@@ -624,7 +687,7 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        let result = query.eval(Value::Null).unwrap();
+        let result = query.eval(&Value::Null).unwrap();
         let expected = Value::Bool(true);
         assert_eq!(expected, result);
     }
@@ -645,8 +708,8 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        let result = query.eval(Value::Null).unwrap();
-        let expected = Value::String("hello".to_string());
+        let result = query.eval(&Value::Null).unwrap();
+        let expected = Value::from("hello");
         assert_eq!(expected, result);
     }
 
@@ -667,8 +730,8 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        let result = query.eval(Value::Null).unwrap();
-        let expected = Value::String("hello".to_string());
+        let result = query.eval(&Value::Null).unwrap();
+        let expected = Value::from("hello");
         assert_eq!(expected, result);
     }
 
@@ -690,8 +753,8 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        let result = query.eval(Value::Null).unwrap();
-        let expected = Value::String("world".to_string());
+        let result = query.eval(&Value::Null).unwrap();
+        let expected = Value::from("world");
         assert_eq!(expected, result);
     }
 
@@ -714,8 +777,8 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        let result = query.eval(Value::Null).unwrap();
-        let expected = Value::String("world".to_string());
+        let result = query.eval(&Value::Null).unwrap();
+        let expected = Value::from("world");
         assert_eq!(expected, result);
     }
 
@@ -740,8 +803,8 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        let result = query.eval(Value::Null).unwrap();
-        let expected = Value::String("hello".to_string());
+        let result = query.eval(&Value::Null).unwrap();
+        let expected = Value::from("hello");
         assert_eq!(expected, result);
     }
 
@@ -765,12 +828,12 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        let result = query.eval(Value::Number(3.into())).unwrap();
-        let expected = Value::String("hello".to_string());
+        let result = query.eval(&Value::Number(3.into())).unwrap();
+        let expected = Value::from("hello");
         assert_eq!(expected, result);
 
-        let result = query.eval(Value::Number(2.into())).unwrap();
-        let expected = Value::String("world".to_string());
+        let result = query.eval(&Value::Number(2.into())).unwrap();
+        let expected = Value::from("world");
         assert_eq!(expected, result);
     }
 
@@ -795,12 +858,12 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        let result = query.eval(Value::Number(4.into())).unwrap();
-        let expected = Value::String("hello".to_string());
+        let result = query.eval(&Value::Number(4.into())).unwrap();
+        let expected = Value::from("hello");
         assert_eq!(expected, result);
 
-        let result = query.eval(Value::Number(3.into())).unwrap();
-        let expected = Value::String("world".to_string());
+        let result = query.eval(&Value::Number(3.into())).unwrap();
+        let expected = Value::from("world");
         assert_eq!(expected, result);
     }
 
@@ -826,12 +889,12 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        let result = query.eval(Value::Number(4.into())).unwrap();
-        let expected = Value::String("hello".to_string());
+        let result = query.eval(&Value::Number(4.into())).unwrap();
+        let expected = Value::from("hello".to_string());
         assert_eq!(expected, result);
 
-        let result = query.eval(Value::Number(3.into())).unwrap();
-        let expected = Value::String("world".to_string());
+        let result = query.eval(&Value::Number(3.into())).unwrap();
+        let expected = Value::from("world");
         assert_eq!(expected, result);
     }
 
@@ -861,20 +924,20 @@ mod tests {
         let query = Expr::try_from(query).unwrap();
 
         let query = CompiledQuery::compile(query, vec![module]).unwrap();
-        let result = query.eval(Value::Number(3.into())).unwrap();
-        let expected = Value::String("hello".to_string());
+        let result = query.eval(&Value::Number(3.into())).unwrap();
+        let expected = Value::from("hello".to_string());
         assert_eq!(expected, result);
 
-        let result = query.eval(Value::Number(4.into())).unwrap();
-        let expected = Value::String("there".to_string());
+        let result = query.eval(&Value::Number(4.into())).unwrap();
+        let expected = Value::from("there".to_string());
         assert_eq!(expected, result);
 
-        let result = query.eval(Value::Number(5.into())).unwrap();
-        let expected = Value::String("ok".to_string());
+        let result = query.eval(&Value::Number(5.into())).unwrap();
+        let expected = Value::from("ok".to_string());
         assert_eq!(expected, result);
 
-        let result = query.eval(Value::Number(6.into())).unwrap();
-        let expected = Value::String("world".to_string());
+        let result = query.eval(&Value::Number(6.into())).unwrap();
+        let expected = Value::from("world".to_string());
         assert_eq!(expected, result);
     }
 }

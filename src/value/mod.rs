@@ -1,15 +1,18 @@
+use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::ops::{Add, Div, Mul, Sub};
+use std::hash::{Hash, Hasher};
 
 mod de;
 mod from;
-mod index;
 mod number;
 mod ser;
+mod valueref;
 
-pub use self::index::Index;
 pub use self::number::Number;
+pub use self::valueref::{Index, ToValue, ValueRef};
 
 pub type Map<K, V> = BTreeMap<K, V>;
 pub type Set<V> = BTreeSet<V>;
@@ -33,19 +36,77 @@ impl std::error::Error for InvalidType {
     }
 }
 
-#[derive(Clone, Eq, Ord, PartialEq, PartialOrd, Hash)]
-pub enum Value {
+#[derive(Clone)]
+pub enum Value<'v> {
     Undefined,
     Null,
     Bool(bool),
     Number(Number),
-    String(String),
-    Array(Vec<Value>),
-    Object(Map<Value, Value>),
-    Set(Set<Value>),
+    String(Cow<'v, str>),
+    Array(Vec<Value<'v>>),
+    Object(Map<Value<'v>, Value<'v>>),
+    Set(Set<Value<'v>>),
+    Ref(&'v dyn ValueRef),
 }
 
-impl fmt::Debug for Value {
+impl PartialEq for Value<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Undefined, Value::Undefined) => true,
+            (Value::Null, Value::Null) => true,
+            (Value::Bool(l), Value::Bool(r)) => l == r,
+            (Value::Number(l), Value::Number(r)) => l == r,
+            (Value::String(l), Value::String(r)) => l == r,
+            (Value::Array(l), Value::Array(r)) => l == r,
+            (Value::Object(l), Value::Object(r)) => l == r,
+            (Value::Ref(l), Value::Ref(r)) => l.to_value().eq(&r.to_value()),
+            (Value::Ref(l), r) => l.to_value().eq(&r),
+            (l, Value::Ref(r)) => l.eq(&r.to_value()),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Value<'_> {}
+
+impl Ord for Value<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Value::Undefined, Value::Undefined) => Ordering::Equal,
+            (Value::Null, Value::Null) => Ordering::Equal,
+            (Value::Bool(l), Value::Bool(r)) => l.cmp(r),
+            (Value::Number(l), Value::Number(r)) => l.cmp(r),
+            (Value::String(l), Value::String(r)) => l.cmp(r),
+            (Value::Array(l), Value::Array(r)) => l.cmp(r),
+            (Value::Object(l), Value::Object(r)) => l.cmp(r),
+            (Value::Ref(l), Value::Ref(r)) => l.to_value().cmp(&r.to_value()),
+            (Value::Ref(l), r) => l.to_value().cmp(&r),
+            (l, Value::Ref(r)) => l.cmp(&r.to_value()),
+            (Value::Undefined, _) => Ordering::Less,
+            (_, Value::Undefined) => Ordering::Greater,
+            (Value::Null, _) => Ordering::Less,
+            (_, Value::Null) => Ordering::Greater,
+            (Value::Number(_), _) => Ordering::Less,
+            (_, Value::Number(_)) => Ordering::Greater,
+            (Value::String(_), _) => Ordering::Less,
+            (_, Value::String(_)) => Ordering::Greater,
+            (Value::Array(_), _) => Ordering::Less,
+            (_, Value::Array(_)) => Ordering::Greater,
+            (Value::Object(_), _) => Ordering::Less,
+            (_, Value::Object(_)) => Ordering::Greater,
+            (Value::Set(_), _) => Ordering::Less,
+            (_, Value::Set(_)) => Ordering::Greater,
+        }
+    }
+}
+
+impl PartialOrd for Value<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl fmt::Debug for Value<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Value::Undefined => formatter.debug_tuple("Undefined").finish(),
@@ -56,11 +117,28 @@ impl fmt::Debug for Value {
             Value::Array(ref v) => formatter.debug_tuple("Array").field(v).finish(),
             Value::Object(ref v) => formatter.debug_tuple("Object").field(v).finish(),
             Value::Set(ref v) => formatter.debug_tuple("Set").field(v).finish(),
+            Value::Ref(ref v) => formatter.debug_tuple("Ref").field(v).finish(),
         }
     }
 }
 
-impl fmt::Display for Value {
+impl Hash for Value<'static> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Value::Undefined => ().hash(state),
+            Value::Null => ().hash(state),
+            Value::Bool(v) => v.hash(state),
+            Value::Number(ref v) => v.hash(state),
+            Value::String(ref v) => v.hash(state),
+            Value::Array(ref v) => v.hash(state),
+            Value::Object(ref v) => v.hash(state),
+            Value::Set(ref v) => v.hash(state),
+            Value::Ref(ref _v) => ().hash(state),
+        }
+    }
+}
+
+impl fmt::Display for Value<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Value::Undefined => write!(f, "undefined"),
@@ -108,26 +186,28 @@ impl fmt::Display for Value {
                 }
                 write!(f, "}}")
             }
+            Value::Ref(ref v) => write!(f, "{:?}", v),
         }
     }
 }
 
-impl Default for Value {
-    fn default() -> Value {
-        Value::Null
+impl Default for Value<'_> {
+    fn default() -> Value<'static> {
+        Value::Undefined
     }
 }
 
-impl Value {
-    pub fn get<I: Index>(&self, index: I) -> Option<&Value> {
-        index.index_into(self)
+impl<'v> Value<'v> {
+    pub fn get(&self, index: &Value<'v>) -> Option<Value<'_>> {
+        match self {
+            Value::Array(ref vec) => vec.index(index),
+            Value::Object(ref map) => map.index(index),
+            Value::Ref(ref r) => r.index(index),
+            _ => None,
+        }
     }
 
-    pub fn get_mut<I: Index>(&mut self, index: I) -> Option<&mut Value> {
-        index.index_into_mut(self)
-    }
-
-    pub fn try_into_set(self) -> Result<Set<Value>, InvalidType> {
+    pub fn try_into_set(self) -> Result<Set<Value<'v>>, InvalidType> {
         match self {
             Value::Set(v) => Ok(v),
             v => Err(InvalidType("set", Type(&v).ty())),
@@ -141,7 +221,7 @@ impl Value {
         }
     }
 
-    pub fn as_set_mut(&mut self) -> Option<&mut Set<Value>> {
+    pub fn as_set_mut(&mut self) -> Option<&mut Set<Value<'v>>> {
         match *self {
             Value::Set(ref mut set) => Some(set),
             _ => None,
@@ -152,21 +232,21 @@ impl Value {
         self.as_set().is_some()
     }
 
-    pub fn try_into_object(self) -> Result<Map<Value, Value>, InvalidType> {
+    pub fn try_into_object(self) -> Result<Map<Value<'v>, Value<'v>>, InvalidType> {
         match self {
             Value::Object(map) => Ok(map),
             v => Err(InvalidType("object", Type(&v).ty())),
         }
     }
 
-    pub fn as_object(&self) -> Option<&Map<Value, Value>> {
+    pub fn as_object(&self) -> Option<&Map<Value<'v>, Value<'v>>> {
         match *self {
             Value::Object(ref map) => Some(map),
             _ => None,
         }
     }
 
-    pub fn as_object_mut(&mut self) -> Option<&mut Map<Value, Value>> {
+    pub fn as_object_mut(&mut self) -> Option<&mut Map<Value<'v>, Value<'v>>> {
         match *self {
             Value::Object(ref mut map) => Some(map),
             _ => None,
@@ -177,7 +257,7 @@ impl Value {
         self.as_object().is_some()
     }
 
-    pub fn try_into_array(self) -> Result<Vec<Value>, InvalidType> {
+    pub fn try_into_array(self) -> Result<Vec<Value<'v>>, InvalidType> {
         match self {
             Value::Array(array) => Ok(array),
             v => Err(InvalidType("array", Type(&v).ty())),
@@ -191,7 +271,7 @@ impl Value {
         }
     }
 
-    pub fn as_array_mut(&mut self) -> Option<&mut Vec<Value>> {
+    pub fn as_array_mut(&mut self) -> Option<&mut Vec<Value<'v>>> {
         match *self {
             Value::Array(ref mut array) => Some(array),
             _ => None,
@@ -204,7 +284,7 @@ impl Value {
 
     pub fn try_into_string(self) -> Result<String, InvalidType> {
         match self {
-            Value::String(string) => Ok(string),
+            Value::String(string) => Ok(string.into_owned()),
             v => Err(InvalidType("string", Type(&v).ty())),
         }
     }
@@ -328,7 +408,7 @@ impl Value {
     }
 }
 
-struct Type<'a>(&'a Value);
+struct Type<'a>(&'a Value<'a>);
 
 impl<'a> Type<'a> {
     pub fn ty(&self) -> &'static str {
@@ -341,6 +421,7 @@ impl<'a> Type<'a> {
             Value::Array(_) => "array",
             Value::Object(_) => "object",
             Value::Set(_) => "set",
+            Value::Ref(_) => "ref",
         }
     }
 }
@@ -356,14 +437,15 @@ impl<'a> fmt::Display for Type<'a> {
             Value::Array(_) => formatter.write_str("array"),
             Value::Object(_) => formatter.write_str("object"),
             Value::Set(_) => formatter.write_str("set"),
+            Value::Ref(_) => formatter.write_str("ref"),
         }
     }
 }
 
 macro_rules! impl_binop {
     (impl $imp:ident, $method:ident) => {
-        impl $imp for Value {
-            type Output = Value;
+        impl $imp for Value<'_> {
+            type Output = Value<'static>;
 
             fn $method(self, other: Self) -> Self::Output {
                 match (self, other) {
@@ -373,8 +455,8 @@ macro_rules! impl_binop {
             }
         }
 
-        impl<'v> $imp<Value> for &'v Value {
-            type Output = Value;
+        impl<'a> $imp<Value<'_>> for &'a Value<'_> {
+            type Output = Value<'static>;
 
             fn $method(self, other: Value) -> Self::Output {
                 match (self, other) {
@@ -384,10 +466,10 @@ macro_rules! impl_binop {
             }
         }
 
-        impl $imp<&Value> for Value {
-            type Output = Value;
+        impl<'v, 'a: 'v> $imp<&'a Value<'v>> for Value<'v> {
+            type Output = Value<'static>;
 
-            fn $method(self, other: &Self) -> Self::Output {
+            fn $method(self, other: &'a Self) -> Self::Output {
                 match (self, other) {
                     (Value::Number(l), Value::Number(ref r)) => Value::Number($imp::$method(l, *r)),
                     _ => Value::Undefined,
@@ -395,8 +477,8 @@ macro_rules! impl_binop {
             }
         }
 
-        impl<'v, 'a: 'v> $imp<&'a Value> for &'v Value {
-            type Output = Value;
+        impl<'v, 'a: 'v> $imp<&'a Value<'v>> for &'v Value<'v> {
+            type Output = Value<'static>;
 
             fn $method(self, other: Self) -> Self::Output {
                 match (self, other) {
@@ -415,14 +497,14 @@ impl_binop!(impl Sub, sub);
 impl_binop!(impl Mul, mul);
 impl_binop!(impl Div, div);
 
-pub fn to_value<T>(value: T) -> Result<Value, crate::Error<'static>>
+pub fn to_value<T>(value: T) -> Result<Value<'static>, crate::Error<'static>>
 where
     T: serde::Serialize,
 {
     value.serialize(ser::Serializer)
 }
 
-pub fn from_value<T>(value: Value) -> Result<T, crate::Error<'static>>
+pub fn from_value<'a, T>(value: Value<'a>) -> Result<T, crate::Error<'static>>
 where
     T: serde::de::DeserializeOwned,
 {
