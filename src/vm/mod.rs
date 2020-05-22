@@ -349,6 +349,8 @@ impl<'a> Instance<'a> {
                         self::BinOp::And => {
                             if left.is_boolean() && right.is_boolean() {
                                 static_bool!(left.is_true() && right.is_true())
+                            } else if !left.is_undefined() && !right.is_undefined() {
+                                &TRUE
                             } else {
                                 &UNDEFINED
                             }

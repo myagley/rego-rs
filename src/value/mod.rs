@@ -2,8 +2,8 @@ use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::hash::{Hash, Hasher};
 use std::ops::{Add, Div, Mul, Sub};
+use std::hash::{Hash, Hasher};
 
 mod de;
 mod from;
